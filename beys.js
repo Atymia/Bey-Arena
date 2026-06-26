@@ -12,7 +12,7 @@ const BEY_ROSTER = [
     type: 'attack',
     colors: { primary: '#e8ecf0', secondary: '#c3c9d2', bit: '#f2c829' },
     emblem: 'spiral',
-    stats: { attack: 9, defense: 4, stamina: 6, speed: 8 },
+    stats: { attack: 9, defense: 3, stamina: 5, speed: 9 },
     moves: {
       base: { name: 'Quick Gust', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'Hurricane Fury', power: 2.2, charge: 11, cooldown: 13, duration: 0.9 }
@@ -25,7 +25,7 @@ const BEY_ROSTER = [
     type: 'attack',
     colors: { primary: '#2563c4', secondary: '#173f86', bit: '#f2c829' },
     emblem: 'flame',
-    stats: { attack: 8, defense: 6, stamina: 7, speed: 7 },
+    stats: { attack: 8, defense: 4, stamina: 6, speed: 8 },
     moves: {
       base: { name: 'Flame Beak', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'Blazing Phoenix Wings', power: 2.0, charge: 11, cooldown: 13, duration: 0.9 }
@@ -38,7 +38,7 @@ const BEY_ROSTER = [
     type: 'attack',
     colors: { primary: '#1a1a1d', secondary: '#0c0c0e', bit: '#d4322a' },
     emblem: 'flame-dark',
-    stats: { attack: 10, defense: 5, stamina: 5, speed: 6 },
+    stats: { attack: 10, defense: 3, stamina: 4, speed: 8 },
     moves: {
       base: { name: 'Dark Claw', power: 1.4, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'Black Phoenix Eclipse', power: 2.4, charge: 11, cooldown: 13, duration: 0.9 }
@@ -51,7 +51,7 @@ const BEY_ROSTER = [
     type: 'balance',
     colors: { primary: '#9aa0a8', secondary: '#6e747c', bit: '#2a7fd4' },
     emblem: 'stripes',
-    stats: { attack: 7, defense: 7, stamina: 7, speed: 7 },
+    stats: { attack: 6, defense: 6, stamina: 6, speed: 7 },
     moves: {
       base: { name: 'Lightning Paw', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'White Tiger Roar', power: 2.0, charge: 11, cooldown: 13, duration: 0.9 }
@@ -64,7 +64,7 @@ const BEY_ROSTER = [
     type: 'defense',
     colors: { primary: '#3a9d4e', secondary: '#22692f', bit: '#e08a2a' },
     emblem: 'hex',
-    stats: { attack: 4, defense: 10, stamina: 8, speed: 4 },
+    stats: { attack: 3, defense: 10, stamina: 8, speed: 3 },
     moves: {
       base: { name: 'Iron Shell', power: 1.15, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'Abyssal Wall', power: 1.8, charge: 11, cooldown: 13, duration: 0.9 }
@@ -77,7 +77,7 @@ const BEY_ROSTER = [
     type: 'stamina',
     colors: { primary: '#5a6068', secondary: '#3e434a', bit: '#f2c829' },
     emblem: 'snowflake',
-    stats: { attack: 6, defense: 7, stamina: 9, speed: 6 },
+    stats: { attack: 4, defense: 6, stamina: 10, speed: 5 },
     moves: {
       base: { name: 'Glacial Bite', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'Pack Blizzard', power: 2.0, charge: 11, cooldown: 13, duration: 0.9 }
@@ -90,7 +90,7 @@ const BEY_ROSTER = [
     type: 'balance',
     colors: { primary: '#1a1a1d', secondary: '#0c0c0e', bit: '#f2c829' },
     emblem: 'sunburst',
-    stats: { attack: 8, defense: 8, stamina: 8, speed: 5 },
+    stats: { attack: 6, defense: 7, stamina: 7, speed: 5 },
     moves: {
       base: { name: 'Golden Bolt', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'Olympus Judgment', power: 2.3, charge: 11, cooldown: 13, duration: 0.9 }

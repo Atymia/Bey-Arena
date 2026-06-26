@@ -739,6 +739,13 @@ function playHitSound() {
 let BATTLE = null;
 let joystickVector = { x: 0, y: 0 };
 let joystickActive = false;
+// Tilt steering (gyro), modeled on the reference project.
+let tiltEnabled = false;
+let tiltVector = { x: 0, y: 0 };       // normalized -1..1, like the joystick
+let tiltCalib = { beta: 0, gamma: 0 }; // neutral position set on calibrate
+let tiltRaw = { beta: 0, gamma: 0 };
+let tiltHasReading = false;
+const GYRO_CLAMP = 35; // degrees of tilt for full steer (reference value)
 
 function createFighterState(bey, x, y, vx, vy, isPlayer) {
   return {
@@ -774,7 +781,7 @@ function initBattleState(beyA, beyB, playerIsA) {
   BATTLE = {
     a: createFighterState(beyA, -ARENA.r * 0.32, -ARENA.r * 0.18, 30, -45, playerIsA),
     b: createFighterState(beyB, ARENA.r * 0.32, ARENA.r * 0.18, -30, 45, !playerIsA),
-    elapsed: 0, ended: false, lastT: 0, rafId: 0, ringOutPending: null, spinOutPending: null, spinOutTimer: 0, impactCooldown: 0, launchGrace: 1.0, activeSpecial: null
+    elapsed: 0, ended: false, lastT: 0, rafId: 0, ringOutPending: null, spinOutPending: null, spinOutWinner: null, spinOutTimer: 0, impactCooldown: 0, launchGrace: 1.0, activeSpecial: null
   };
   camLook.ready = false;
   if (camera3d) {
@@ -804,8 +811,18 @@ function initBattleState(beyA, beyB, playerIsA) {
   $('btn-base').disabled = true;
   $('btn-special').disabled = true;
   resetJoystick();
-  // Joystick on every device (desktop + mobile); no tilt, no calibration gate.
-  $('joystick').style.display = 'block';
+  // Mobile: steer by tilt (show the calibrate prompt, hide the stick). Desktop: stick.
+  const isTouch = window.matchMedia('(pointer: coarse)').matches;
+  if (isTouch && !tiltEnabled) {
+    $('calibrate-gate').style.display = 'block';
+    $('joystick').style.display = 'none';
+  } else if (isTouch && tiltEnabled) {
+    $('calibrate-gate').style.display = 'none';
+    $('joystick').style.display = 'none';
+  } else {
+    $('calibrate-gate').style.display = 'none';
+    $('joystick').style.display = 'block';
+  }
 }
 
 function startBattleLoop() {
@@ -879,8 +896,9 @@ function updateBattle(dt) {
   if (inGrace) BATTLE.launchGrace = Math.max(0, BATTLE.launchGrace - dt);
 
   if (!inGrace) {
-    player.vx += joystickVector.x * 260 * dt;
-    player.vy += joystickVector.y * 260 * dt;
+    const inputVec = tiltEnabled ? tiltVector : joystickVector;
+    player.vx += inputVec.x * 260 * dt;
+    player.vy += inputVec.y * 260 * dt;
     aiSteer(ai, player, dt);
   }
 
@@ -952,7 +970,7 @@ function updateBattle(dt) {
 
   const cdx = b.x - a.x, cdy = b.y - a.y;
   const cdist = Math.hypot(cdx, cdy);
-  if (!a.out && !b.out && cdist < BEY_R * 2 && cdist > 0.001) resolveCollision(a, b, cdx, cdy, cdist);
+  if (!BATTLE.spinOutPending && !a.out && !b.out && cdist < BEY_R * 2 && cdist > 0.001) resolveCollision(a, b, cdx, cdy, cdist);
 
   // HUD: spin shown as a percentage (1.0 -> "100%"), bar width = spin fraction.
   const aPct = Math.round(a.spin * 100), bPct = Math.round(b.spin * 100);
@@ -972,12 +990,12 @@ function updateBattle(dt) {
   $('special-cooldown').style.setProperty('--cd', clamp01(player.specialTimer / specialDen));
   $('btn-special').disabled = !specialReady;
 
-  // AI fires moves when ready (prefers special), with a little randomness so it
-  // doesn't fire the instant it charges.
-  if (ai.specialTimer <= 0 && Math.random() < 0.9 * dt * 2) triggerSpecialMove(ai, player);
-  else if (ai.baseTimer <= 0 && Math.random() < 1.2 * dt * 2) triggerBaseMove(ai, player);
-
-  updateActiveSpecial(dt);
+  // AI fires moves when ready (prefers special). Frozen once a spin-out is locked.
+  if (!BATTLE.spinOutPending) {
+    if (ai.specialTimer <= 0 && Math.random() < 0.9 * dt * 2) triggerSpecialMove(ai, player);
+    else if (ai.baseTimer <= 0 && Math.random() < 1.2 * dt * 2) triggerBaseMove(ai, player);
+    updateActiveSpecial(dt);
+  }
 
   // Ring-out: a short readable beat after the bey leaves, then resolve the game.
   if (BATTLE.ringOutPending) {
@@ -988,15 +1006,31 @@ function updateBattle(dt) {
     }
     return;
   }
-  // Spin-out: when a bey's spin hits 0 it wobbles and topples; wait for that to
-  // settle (~1.4s) before showing the result, matching the reference death animation.
-  const drained = a.spin <= 0 ? a : b.spin <= 0 ? b : null;
-  if (drained) {
-    if (BATTLE.spinOutPending !== drained) { BATTLE.spinOutPending = drained; BATTLE.spinOutTimer = 0; }
+  // Spin-out: the moment a bey reaches 0 spin, decide the winner IMMEDIATELY and lock
+  // it. The loser is whoever hit 0 first; if (rarely) both are 0 on the same frame, the
+  // one with the higher attack/closing edge is treated as winner by spin tiebreak. The
+  // death animation still plays, but no further damage is applied to either bey, so the
+  // result can't flip to a double-KO.
+  if (!BATTLE.spinOutPending) {
+    let loser = null;
+    if (a.spin <= 0 && b.spin <= 0) loser = (a.spin <= b.spin) ? a : b; // both: lower spin loses
+    else if (a.spin <= 0) loser = a;
+    else if (b.spin <= 0) loser = b;
+    if (loser) {
+      BATTLE.spinOutPending = loser;
+      BATTLE.spinOutWinner = (loser === a) ? b : a;
+      BATTLE.spinOutTimer = 0;
+      BATTLE.activeSpecial = null; // cancel any in-flight special so it can't keep draining
+    }
+  }
+  if (BATTLE.spinOutPending) {
+    const loser = BATTLE.spinOutPending;
+    // Freeze the winner's spin so it can't also drain to 0 during the animation.
+    BATTLE.spinOutWinner.spin = Math.max(BATTLE.spinOutWinner.spin, 0.001);
     BATTLE.spinOutTimer += dt;
-    drained.vx *= 0.9; drained.vy *= 0.9; // skid to a halt
-    if (BATTLE.spinOutTimer > 1.4) {
-      endBattle(drained === a ? b : a, drained, 'spinout');
+    loser.vx *= 0.9; loser.vy *= 0.9; // skid to a halt
+    if (BATTLE.spinOutTimer > 1.2) {
+      endBattle(BATTLE.spinOutWinner, loser, 'spinout');
     }
     return;
   }
@@ -1182,6 +1216,54 @@ function requestFullscreen() {
   setTimeout(resizeRendererToCanvas, 300); // refit after the fullscreen resize
 }
 
+// ---- Tilt steering (gyro) — same approach as the reference project ----
+function tiltPortraitFactor() {
+  const angle = (screen.orientation && screen.orientation.angle != null) ? screen.orientation.angle : (window.orientation || 0);
+  return (angle === 90 || angle === -90 || angle === 270) ? -1 : 1;
+}
+function onDeviceOrientation(e) {
+  if (e.beta == null || e.gamma == null) return;
+  tiltRaw.beta = e.beta;
+  tiltRaw.gamma = e.gamma;
+  tiltHasReading = true;
+  const f = tiltPortraitFactor();
+  const gBeta = (e.beta - tiltCalib.beta) * f;   // front/back tilt -> screen Y (depth)
+  const gGamma = (e.gamma - tiltCalib.gamma) * f; // left/right tilt -> screen X
+  // Normalize to -1..1 over the clamp range.
+  tiltVector.x = clamp(gGamma / GYRO_CLAMP, -1, 1);
+  tiltVector.y = clamp(gBeta / GYRO_CLAMP, -1, 1);
+}
+function calibrateTilt() {
+  tiltCalib.beta = tiltRaw.beta;
+  tiltCalib.gamma = tiltRaw.gamma;
+  tiltVector.x = 0; tiltVector.y = 0;
+}
+function enableTilt() {
+  requestFullscreen(); // user gesture: also go fullscreen
+  function start() {
+    window.removeEventListener('deviceorientation', onDeviceOrientation, true);
+    window.addEventListener('deviceorientation', onDeviceOrientation, true);
+    tiltEnabled = true;
+    // Calibrate to the current pose shortly after readings start flowing.
+    setTimeout(() => { if (tiltHasReading) calibrateTilt(); }, 350);
+    $('calibrate-gate').style.display = 'none';
+  }
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then((s) => { if (s === 'granted') start(); else tiltUnavailable(); }).catch(() => tiltUnavailable());
+  } else if (window.DeviceOrientationEvent) {
+    start();
+  } else {
+    tiltUnavailable();
+  }
+}
+function tiltUnavailable() {
+  // Fall back to the joystick if the device has no usable motion sensors.
+  tiltEnabled = false;
+  $('calibrate-gate').style.display = 'none';
+  $('joystick').style.display = 'block';
+  alert('Motion sensors unavailable on this device — use the on-screen stick instead.');
+}
+
 function knobRest() {
   const el = $('joystick'), knob = $('joystick-knob');
   return (el.clientWidth - knob.offsetWidth) / 2;
@@ -1244,9 +1326,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (screen.orientation && screen.orientation.lock) {
     screen.orientation.lock('landscape').catch(() => {});
   }
-  // On rotate, refit the 3D canvas to the new screen size.
+  // On rotate, refit the 3D canvas and re-calibrate tilt to the new pose.
   window.addEventListener('orientationchange', () => {
-    setTimeout(resizeRendererToCanvas, 250);
+    setTimeout(() => { resizeRendererToCanvas(); if (tiltEnabled && tiltHasReading) calibrateTilt(); }, 300);
   });
   $('btn-mode-tournament').addEventListener('click', () => { unlockAudio(); requestFullscreen(); enterMode('tournament'); });
   $('btn-mode-single').addEventListener('click', () => { unlockAudio(); requestFullscreen(); enterMode('single'); });
@@ -1301,5 +1383,6 @@ document.addEventListener('DOMContentLoaded', () => {
     GAME.pendingMatch = null;
     showScreen('mode');
   });
+  $('btn-calibrate').addEventListener('click', enableTilt);
   setupJoystick();
 });
