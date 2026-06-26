@@ -811,18 +811,9 @@ function initBattleState(beyA, beyB, playerIsA) {
   $('btn-base').disabled = true;
   $('btn-special').disabled = true;
   resetJoystick();
-  // Mobile: steer by tilt (show the calibrate prompt, hide the stick). Desktop: stick.
+  // Mobile steers by tilt (via the floating Calibrate button); desktop uses the stick.
   const isTouch = window.matchMedia('(pointer: coarse)').matches;
-  if (isTouch && !tiltEnabled) {
-    $('calibrate-gate').style.display = 'block';
-    $('joystick').style.display = 'none';
-  } else if (isTouch && tiltEnabled) {
-    $('calibrate-gate').style.display = 'none';
-    $('joystick').style.display = 'none';
-  } else {
-    $('calibrate-gate').style.display = 'none';
-    $('joystick').style.display = 'block';
-  }
+  $('joystick').style.display = isTouch ? 'none' : 'block';
 }
 
 function startBattleLoop() {
@@ -1217,49 +1208,64 @@ function requestFullscreen() {
 }
 
 // ---- Tilt steering (gyro) — same approach as the reference project ----
+let tiltListening = false;
 function tiltPortraitFactor() {
   const angle = (screen.orientation && screen.orientation.angle != null) ? screen.orientation.angle : (window.orientation || 0);
   return (angle === 90 || angle === -90 || angle === 270) ? -1 : 1;
 }
 function onDeviceOrientation(e) {
   if (e.beta == null || e.gamma == null) return;
-  tiltRaw.beta = e.beta;
+  tiltRaw.beta = e.beta;     // always keep the latest raw reading
   tiltRaw.gamma = e.gamma;
   tiltHasReading = true;
+  if (!tiltEnabled) return;  // only steer once calibrated/enabled
   const f = tiltPortraitFactor();
   const gBeta = (e.beta - tiltCalib.beta) * f;   // front/back tilt -> screen Y (depth)
   const gGamma = (e.gamma - tiltCalib.gamma) * f; // left/right tilt -> screen X
-  // Normalize to -1..1 over the clamp range.
   tiltVector.x = clamp(gGamma / GYRO_CLAMP, -1, 1);
   tiltVector.y = clamp(gBeta / GYRO_CLAMP, -1, 1);
 }
+// Start listening to the sensors as early as possible so readings are flowing well
+// before the user taps calibrate. Safe to call repeatedly.
+function startTiltListening() {
+  if (tiltListening) return;
+  tiltListening = true;
+  window.addEventListener('deviceorientation', onDeviceOrientation, true);
+}
+// Ask for motion permission (needed on iOS) from a user gesture, then start listening.
+function requestTiltPermission() {
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then((s) => { if (s === 'granted') startTiltListening(); }).catch(() => {});
+  } else if (window.DeviceOrientationEvent) {
+    startTiltListening();
+  }
+}
 function calibrateTilt() {
+  // Use the latest reading as the neutral pose.
   tiltCalib.beta = tiltRaw.beta;
   tiltCalib.gamma = tiltRaw.gamma;
   tiltVector.x = 0; tiltVector.y = 0;
 }
-function enableTilt() {
-  requestFullscreen(); // user gesture: also go fullscreen
-  function start() {
-    window.removeEventListener('deviceorientation', onDeviceOrientation, true);
-    window.addEventListener('deviceorientation', onDeviceOrientation, true);
-    tiltEnabled = true;
-    // Calibrate to the current pose shortly after readings start flowing.
-    setTimeout(() => { if (tiltHasReading) calibrateTilt(); }, 350);
-    $('calibrate-gate').style.display = 'none';
-  }
-  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-    DeviceOrientationEvent.requestPermission().then((s) => { if (s === 'granted') start(); else tiltUnavailable(); }).catch(() => tiltUnavailable());
-  } else if (window.DeviceOrientationEvent) {
-    start();
-  } else {
-    tiltUnavailable();
-  }
+// Called by the Calibrate button. Ensures listening + permission, then calibrates to
+// the current pose. If readings aren't in yet, it retries for a moment instead of
+// silently failing.
+function doCalibrate(onDone) {
+  requestTiltPermission();
+  startTiltListening();
+  let tries = 0;
+  (function attempt() {
+    if (tiltHasReading) {
+      tiltEnabled = true;
+      calibrateTilt();
+      if (onDone) onDone(true);
+      return;
+    }
+    if (tries++ < 20) { setTimeout(attempt, 50); return; } // wait up to ~1s for sensors
+    if (onDone) onDone(false); // no sensors available
+  })();
 }
-function tiltUnavailable() {
-  // Fall back to the joystick if the device has no usable motion sensors.
+function tiltUnavailableFallback() {
   tiltEnabled = false;
-  $('calibrate-gate').style.display = 'none';
   $('joystick').style.display = 'block';
   alert('Motion sensors unavailable on this device — use the on-screen stick instead.');
 }
@@ -1330,8 +1336,8 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('orientationchange', () => {
     setTimeout(() => { resizeRendererToCanvas(); if (tiltEnabled && tiltHasReading) calibrateTilt(); }, 300);
   });
-  $('btn-mode-tournament').addEventListener('click', () => { unlockAudio(); requestFullscreen(); enterMode('tournament'); });
-  $('btn-mode-single').addEventListener('click', () => { unlockAudio(); requestFullscreen(); enterMode('single'); });
+  $('btn-mode-tournament').addEventListener('click', () => { unlockAudio(); requestFullscreen(); requestTiltPermission(); enterMode('tournament'); });
+  $('btn-mode-single').addEventListener('click', () => { unlockAudio(); requestFullscreen(); requestTiltPermission(); enterMode('single'); });
   $('btn-select-back').addEventListener('click', () => {
     if (GAME.mode === 'single' && GAME.selectionPhase === 'opponent') {
       // Go back to picking the player's bey.
@@ -1383,6 +1389,17 @@ document.addEventListener('DOMContentLoaded', () => {
     GAME.pendingMatch = null;
     showScreen('mode');
   });
-  $('btn-calibrate').addEventListener('click', enableTilt);
+  function runCalibrate(btn) {
+    const prev = btn ? btn.textContent : '';
+    if (btn) btn.textContent = 'Calibrating…';
+    requestFullscreen();
+    doCalibrate((ok) => {
+      if (btn) btn.textContent = ok ? 'Calibrated ✓' : prev;
+      if (!ok) tiltUnavailableFallback();
+      if (btn && ok) setTimeout(() => { btn.textContent = prev; }, 1200);
+    });
+  }
+  $('btn-calibrate-float').addEventListener('click', () => runCalibrate($('btn-calibrate-float')));
+  $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate')));
   setupJoystick();
 });

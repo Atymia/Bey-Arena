@@ -162,8 +162,27 @@ main { flex: 1; padding: 0 18px 28px; }
   border-radius: var(--radius);
 }
 
-.calibrate-gate { text-align: center; margin: 12px 0; }
-.calibrate-hint { font-size: 11px; color: var(--text-dim); margin: 8px 6px 0; }
+/* Floating calibrate button — only on touch + landscape. Hidden elsewhere. */
+.calibrate-float {
+  display: none;
+  position: fixed;
+  top: 10px; right: 12px;
+  z-index: 95;
+  background: rgba(8, 12, 28, 0.85);
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  .calibrate-float { display: block; }
+}
+#btn-recalibrate { display: none; }
+@media (pointer: coarse) { #btn-recalibrate { display: block; } }
 
 /* ============================================================
    Fullscreen landscape layout for mobile play.
@@ -188,19 +207,6 @@ main { flex: 1; padding: 0 18px 28px; }
     aspect-ratio: auto;
     border: none;
     border-radius: 0;
-  }
-
-  /* Calibrate prompt centered over the arena. */
-  #screen-battle .calibrate-gate {
-    position: fixed;
-    left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 90;
-    background: rgba(8, 12, 28, 0.85);
-    border-radius: var(--radius);
-    padding: 18px 20px;
-    margin: 0;
-    max-width: 80vw;
   }
 
   /* HUD floats across the top. */
