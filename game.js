@@ -741,11 +741,14 @@ let joystickVector = { x: 0, y: 0 };
 let joystickActive = false;
 // Tilt steering (gyro), modeled on the reference project.
 let tiltEnabled = false;
-let tiltVector = { x: 0, y: 0 };       // normalized -1..1, like the joystick
-let tiltCalib = { beta: 0, gamma: 0 }; // neutral position set on calibrate
-let tiltRaw = { beta: 0, gamma: 0 };
+let tiltVector = { x: 0, y: 0 };        // normalized -1..1, like the joystick
+let gravCalib = { x: 0, y: 0 };         // neutral gravity (device frame) set on calibrate
+let gravRaw = { x: 0, y: 0, z: 0 };     // latest gravity reading (device frame)
 let tiltHasReading = false;
-const GYRO_CLAMP = 35; // degrees of tilt for full steer (reference value)
+let tiltListening = false;
+const TILT_SENS = 3.6;                  // m/s^2 of horizontal gravity for full steer (~22°)
+const TILT_DEAD = 0.06;                 // dead zone (normalized) so a still phone doesn't drift
+const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 
 function createFighterState(bey, x, y, vx, vy, isPlayer) {
   return {
@@ -888,8 +891,9 @@ function updateBattle(dt) {
 
   if (!inGrace) {
     const inputVec = tiltEnabled ? tiltVector : joystickVector;
-    player.vx += inputVec.x * 260 * dt;
-    player.vy += inputVec.y * 260 * dt;
+    const steerForce = tiltEnabled ? 200 : 260; // tilt slightly gentler for control
+    player.vx += inputVec.x * steerForce * dt;
+    player.vy += inputVec.y * steerForce * dt;
     aiSteer(ai, player, dt);
   }
 
@@ -1207,45 +1211,63 @@ function requestFullscreen() {
   setTimeout(resizeRendererToCanvas, 300); // refit after the fullscreen resize
 }
 
-// ---- Tilt steering (gyro) — same approach as the reference project ----
-let tiltListening = false;
-function tiltPortraitFactor() {
-  const angle = (screen.orientation && screen.orientation.angle != null) ? screen.orientation.angle : (window.orientation || 0);
-  return (angle === 90 || angle === -90 || angle === 270) ? -1 : 1;
+// ---- Tilt steering via the gravity vector (devicemotion) ----
+// Using accelerationIncludingGravity avoids the gimbal-lock problem of beta/gamma
+// angles: the gravity direction is stable at any phone pose, like Play Store games.
+function screenAngleDeg() {
+  if (screen.orientation && screen.orientation.angle != null) return screen.orientation.angle;
+  return window.orientation || 0;
 }
-function onDeviceOrientation(e) {
-  if (e.beta == null || e.gamma == null) return;
-  tiltRaw.beta = e.beta;     // always keep the latest raw reading
-  tiltRaw.gamma = e.gamma;
+function onDeviceMotion(e) {
+  const g = e.accelerationIncludingGravity;
+  if (!g || g.x == null) return;
+  // iOS reports gravity with opposite sign to Android; normalize so +x is consistent.
+  const s = IS_IOS ? -1 : 1;
+  gravRaw.x = g.x * s;
+  gravRaw.y = g.y * s;
+  gravRaw.z = (g.z || 0) * s;
   tiltHasReading = true;
-  if (!tiltEnabled) return;  // only steer once calibrated/enabled
-  const f = tiltPortraitFactor();
-  const gBeta = (e.beta - tiltCalib.beta) * f;   // front/back tilt -> screen Y (depth)
-  const gGamma = (e.gamma - tiltCalib.gamma) * f; // left/right tilt -> screen X
-  tiltVector.x = clamp(gGamma / GYRO_CLAMP, -1, 1);
-  tiltVector.y = clamp(gBeta / GYRO_CLAMP, -1, 1);
+  if (!tiltEnabled) return;
+
+  // Horizontal gravity shift from the calibrated neutral, in the DEVICE frame.
+  const dxDev = gravRaw.x - gravCalib.x;
+  const dyDev = gravRaw.y - gravCalib.y;
+  // Rotate device-frame deltas into the SCREEN frame using the orientation angle, so
+  // tilting maps to screen directions no matter how the phone is rotated.
+  const a = screenAngleDeg() * Math.PI / 180;
+  const ca = Math.cos(a), sa = Math.sin(a);
+  let sx = dxDev * ca + dyDev * sa;   // screen right(+)
+  let sy = -dxDev * sa + dyDev * ca;  // screen up(+)
+  // Normalize to -1..1 over the sensitivity range.
+  let nx = clamp(sx / TILT_SENS, -1, 1);
+  let ny = clamp(sy / TILT_SENS, -1, 1);
+  // Dead zone so a steady hand doesn't drift the bey.
+  nx = Math.abs(nx) < TILT_DEAD ? 0 : nx;
+  ny = Math.abs(ny) < TILT_DEAD ? 0 : ny;
+  // World +y points toward the camera (screen-down), so screen-up must DECREASE y.
+  tiltVector.x = nx;
+  tiltVector.y = -ny;
 }
-// Start listening to the sensors as early as possible so readings are flowing well
-// before the user taps calibrate. Safe to call repeatedly.
 function startTiltListening() {
   if (tiltListening) return;
   tiltListening = true;
-  window.addEventListener('deviceorientation', onDeviceOrientation, true);
-  // Some Android devices only deliver populated beta/gamma on the absolute event.
-  window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+  window.addEventListener('devicemotion', onDeviceMotion, true);
 }
 // Ask for motion permission (needed on iOS) from a user gesture, then start listening.
 function requestTiltPermission() {
-  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-    DeviceOrientationEvent.requestPermission().then((s) => { if (s === 'granted') startTiltListening(); }).catch(() => {});
-  } else if (window.DeviceOrientationEvent) {
+  let asked = false;
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    asked = true;
+    DeviceMotionEvent.requestPermission().then((s) => { if (s === 'granted') startTiltListening(); }).catch(() => {});
+  }
+  if (!asked && (typeof DeviceMotionEvent !== 'undefined' || window.DeviceMotionEvent)) {
     startTiltListening();
   }
 }
 function calibrateTilt() {
-  // Use the latest reading as the neutral pose.
-  tiltCalib.beta = tiltRaw.beta;
-  tiltCalib.gamma = tiltRaw.gamma;
+  // Neutral = the current gravity direction.
+  gravCalib.x = gravRaw.x;
+  gravCalib.y = gravRaw.y;
   tiltVector.x = 0; tiltVector.y = 0;
 }
 // Called by a Calibrate button. Ensures listening + permission, then calibrates to the
@@ -1328,7 +1350,7 @@ function setupJoystick() {
 document.addEventListener('DOMContentLoaded', () => {
   initThree();
   // Prime motion sensors on the very first tap anywhere (iOS needs a user gesture).
-  // This gets deviceorientation events flowing well before the user calibrates.
+  // This gets motion-sensor events flowing well before the user calibrates.
   document.addEventListener('pointerdown', () => { requestTiltPermission(); }, { once: true });
   // Try to lock to landscape on mobile (best-effort; browsers may ignore unless in
   // fullscreen). The CSS overlay still prompts the user to rotate if not landscape.
@@ -1415,17 +1437,29 @@ document.addEventListener('DOMContentLoaded', () => {
       showScreen('mode');
     }
   });
-  // Live readout on the start screen so the user can SEE sensors are detected.
+  // Live readout on the start screen so the user can SEE sensors are detected and which
+  // way the bey will move. We temporarily enable tilt + auto-calibrate for the preview.
   const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
   if (isTouchDevice) {
     requestTiltPermission();
+    let previewCalibrated = false;
     setInterval(() => {
       const st = $('start-tilt-status');
       if (!st || !$('screen-start').classList.contains('active')) return;
-      st.textContent = tiltHasReading
-        ? 'Motion detected ✓ — tap Start to calibrate and play.'
-        : 'Tip: tap Start to enable motion controls.';
-    }, 400);
+      if (!tiltHasReading) { st.textContent = 'Tip: tap Start to enable motion controls.'; return; }
+      // Preview mode: enable + calibrate once so the arrow reflects real tilt.
+      if (!previewCalibrated) { tiltEnabled = true; calibrateTilt(); previewCalibrated = true; }
+      const ax = tiltVector.x, ay = tiltVector.y;
+      let arrow = '•';
+      if (Math.hypot(ax, ay) > 0.18) {
+        const ang = Math.atan2(ay, ax); // ay>0 = world down on screen
+        const dirs = ['→','↗','↑','↖','←','↙','↓','↘'];
+        // Note: tiltVector.y is world-y (down positive), so up-arrow when ay<0.
+        const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
+        arrow = dirs[idx];
+      }
+      st.textContent = 'Motion detected ✓  ' + arrow + '   (tap Start to play)';
+    }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
   setupJoystick();
