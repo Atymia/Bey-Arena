@@ -742,11 +742,10 @@ let joystickActive = false;
 // Tilt steering (gyro), modeled on the reference project.
 let tiltEnabled = false;
 let tiltVector = { x: 0, y: 0 };        // normalized -1..1, like the joystick
-let gravCalib = { x: 0, y: 0 };         // neutral gravity (device frame) set on calibrate
+let gravCalib = { roll: 0, pitch: 0 };  // neutral lean angles set on calibrate
 let gravRaw = { x: 0, y: 0, z: 0 };     // latest gravity reading (device frame)
 let tiltHasReading = false;
 let tiltListening = false;
-const TILT_SENS = 3.6;                  // m/s^2 of horizontal gravity for full steer (~22°)
 const TILT_DEAD = 0.06;                 // dead zone (normalized) so a still phone doesn't drift
 const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 
@@ -1221,7 +1220,7 @@ function screenAngleDeg() {
 function onDeviceMotion(e) {
   const g = e.accelerationIncludingGravity;
   if (!g || g.x == null) return;
-  // iOS reports gravity with opposite sign to Android; normalize so +x is consistent.
+  // iOS reports gravity with opposite sign to Android; normalize.
   const s = IS_IOS ? -1 : 1;
   gravRaw.x = g.x * s;
   gravRaw.y = g.y * s;
@@ -1229,19 +1228,27 @@ function onDeviceMotion(e) {
   tiltHasReading = true;
   if (!tiltEnabled) return;
 
-  // Horizontal gravity shift from the calibrated neutral, in the DEVICE frame.
-  const dxDev = gravRaw.x - gravCalib.x;
-  const dyDev = gravRaw.y - gravCalib.y;
-  // Rotate device-frame deltas into the SCREEN frame using the orientation angle, so
-  // tilting maps to screen directions no matter how the phone is rotated.
-  const a = screenAngleDeg() * Math.PI / 180;
-  const ca = Math.cos(a), sa = Math.sin(a);
-  let sx = dxDev * ca + dyDev * sa;   // screen right(+)
-  let sy = -dxDev * sa + dyDev * ca;  // screen up(+)
-  // Normalize to -1..1 over the sensitivity range.
-  let nx = clamp(sx / TILT_SENS, -1, 1);
-  let ny = clamp(sy / TILT_SENS, -1, 1);
-  // Dead zone so a steady hand doesn't drift the bey.
+  // Derive tilt as ANGLES from the full gravity vector. Using atan2 over the whole 3D
+  // vector means it stays meaningful even when the phone is held upright (where flat
+  // x/y components barely change). roll = left/right lean, pitch = front/back lean.
+  const gx = gravRaw.x, gy = gravRaw.y, gz = gravRaw.z;
+  const roll = Math.atan2(gx, Math.sqrt(gy * gy + gz * gz));   // device left/right lean
+  const pitch = Math.atan2(gy, Math.sqrt(gx * gx + gz * gz));  // device front/back lean
+  // Delta from the calibrated neutral pose (radians).
+  let dRoll = roll - gravCalib.roll;
+  let dPitch = pitch - gravCalib.pitch;
+  // Map device lean axes to screen axes by orientation. In landscape the device's
+  // roll/pitch swap roles relative to the screen.
+  const ang = screenAngleDeg();
+  let leanX, leanY; // screen right(+) / screen up(+), in radians
+  if (ang === 90) { leanX = dPitch; leanY = dRoll; }
+  else if (ang === -90 || ang === 270) { leanX = -dPitch; leanY = -dRoll; }
+  else if (ang === 180) { leanX = -dRoll; leanY = -dPitch; }
+  else { leanX = dRoll; leanY = dPitch; } // portrait
+  // Normalize: full steer at ~22° of lean.
+  const FULL = 22 * Math.PI / 180;
+  let nx = clamp(leanX / FULL, -1, 1);
+  let ny = clamp(leanY / FULL, -1, 1);
   nx = Math.abs(nx) < TILT_DEAD ? 0 : nx;
   ny = Math.abs(ny) < TILT_DEAD ? 0 : ny;
   // World +y points toward the camera (screen-down), so screen-up must DECREASE y.
@@ -1265,9 +1272,10 @@ function requestTiltPermission() {
   }
 }
 function calibrateTilt() {
-  // Neutral = the current gravity direction.
-  gravCalib.x = gravRaw.x;
-  gravCalib.y = gravRaw.y;
+  // Neutral = the current lean angles derived from gravity.
+  const gx = gravRaw.x, gy = gravRaw.y, gz = gravRaw.z;
+  gravCalib.roll = Math.atan2(gx, Math.sqrt(gy * gy + gz * gz));
+  gravCalib.pitch = Math.atan2(gy, Math.sqrt(gx * gx + gz * gz));
   tiltVector.x = 0; tiltVector.y = 0;
 }
 // Called by a Calibrate button. Ensures listening + permission, then calibrates to the
