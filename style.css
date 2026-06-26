@@ -1,0 +1,285 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@500;700&display=swap');
+
+:root {
+  --bg: #0b0e13;
+  --bg-elevated: #151a22;
+  --bg-card: #1b212b;
+  --steel: #c9ced6;
+  --steel-dim: #4b525c;
+  --amber: #ffb627;
+  --crimson: #e63946;
+  --text: #eef1f5;
+  --text-dim: #8b95a1;
+  --radius: 14px;
+  --font-display: 'Bebas Neue', 'Inter', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'Roboto Mono', monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: radial-gradient(circle at 50% -10%, #1a2030 0%, var(--bg) 55%);
+  color: var(--text);
+  font-family: var(--font-body);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#app {
+  min-height: 100vh;
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar { padding: 18px 20px 8px; text-align: center; }
+.logo { font-family: var(--font-display); letter-spacing: 0.06em; font-size: 28px; margin: 0; color: var(--steel); }
+.logo span { color: var(--amber); }
+
+main { flex: 1; padding: 0 18px 28px; }
+
+.screen { display: none; animation: fade-in 0.25s ease; }
+.screen.active { display: block; }
+
+@keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .screen { animation: none; } }
+
+.screen-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.03em;
+  color: var(--text);
+  margin: 10px 0 14px;
+  text-align: center;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 999px;
+  padding: 14px 18px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn-primary { background: var(--amber); color: #1a1304; }
+.btn-secondary { background: var(--bg-card); color: var(--text); border: 1px solid var(--steel-dim); }
+
+/* ---------- Mode select ---------- */
+.mode-list { display: flex; flex-direction: column; gap: 14px; margin: 30px 0; }
+.mode-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 18px 20px; border-radius: var(--radius); text-align: left; }
+.mode-btn-title { font-family: var(--font-display); font-size: 22px; letter-spacing: 0.03em; }
+.mode-btn-sub { font-size: 12px; font-weight: 400; opacity: 0.85; }
+.btn-primary .mode-btn-sub { color: #3a2c08; }
+
+/* ---------- Bey selection carousel ---------- */
+.carousel { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 26px 0 14px; }
+.carousel-arrow {
+  width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+  background: var(--bg-card); border: 1px solid var(--steel-dim); color: var(--steel);
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+.carousel-arrow:active { transform: scale(0.92); }
+.carousel-card {
+  width: 220px; background: var(--bg-card); border-radius: 20px; padding: 22px 16px;
+  text-align: center; touch-action: pan-y; user-select: none;
+}
+.carousel-card canvas { display: block; margin: 0 auto 10px; }
+.carousel-name { font-family: var(--font-display); font-size: 24px; letter-spacing: 0.03em; }
+.carousel-element { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
+.carousel-dots { display: flex; justify-content: center; gap: 6px; margin-bottom: 22px; }
+.carousel-dots .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--steel-dim); }
+.carousel-dots .dot.active { background: var(--amber); }
+
+.bey-card-name { font-weight: 700; font-size: 14px; margin: 2px 0 2px; }
+.bey-card-element { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+
+/* ---------- Bracket ---------- */
+.round-label { text-align: center; font-family: var(--font-mono); color: var(--amber); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+.bracket-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.bracket-match { background: var(--bg-card); border-radius: var(--radius); padding: 10px 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 13px; }
+.bracket-match.is-player { border: 1px solid var(--amber); }
+.bracket-match.done { opacity: 0.55; }
+.bracket-vs { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; }
+.bracket-bye { color: var(--text-dim); font-style: italic; }
+
+.path-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.path-item { font-size: 12px; color: var(--text-dim); font-family: var(--font-mono); }
+.path-item b { color: #4caf6e; }
+
+/* ---------- Battle screen ---------- */
+.battle-hud { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.fighter-hud { flex: 1; min-width: 0; }
+.fighter-hud.right { text-align: right; }
+.fighter-name { display: block; font-size: 12px; font-weight: 700; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spin-row { display: flex; align-items: baseline; gap: 5px; margin-bottom: 4px; }
+.fighter-hud.right .spin-row { justify-content: flex-end; }
+.spin-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; color: var(--text-dim); }
+.spin-pct { font-family: var(--font-display); font-size: 20px; line-height: 1; letter-spacing: 0.02em; }
+.vs-col { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+.vs-label { font-family: var(--font-display); color: var(--steel-dim); font-size: 16px; line-height: 1; }
+.set-score { font-family: var(--font-mono); font-size: 11px; color: var(--amber); margin-top: 2px; }
+
+.stamina-bar { height: 8px; background: var(--bg-card); border-radius: 6px; overflow: hidden; }
+.stamina-fill { height: 100%; background: linear-gradient(90deg, #4caf6e, var(--amber)); width: 100%; transition: width 0.15s linear; }
+.fighter-hud.right .stamina-fill { margin-left: auto; }
+
+.arena-wrap { position: relative; }
+#arena {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--radius);
+  border: 1px solid var(--steel-dim);
+  touch-action: none;
+  background: #0b0e13;
+}
+
+.three-error {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: var(--bg-card);
+  border-radius: var(--radius);
+}
+
+/* ============================================================
+   Fullscreen landscape layout for mobile play.
+   The battle screen becomes an immersive full-viewport view:
+   the 3D arena fills the screen and the HUD + controls float
+   on top in the corners, like the reference project.
+   ============================================================ */
+@media (pointer: coarse) and (orientation: landscape) {
+  #app { max-width: none; }
+  .topbar { display: none; }
+  main { padding: 0; }
+
+  #screen-battle.active {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+  }
+  #screen-battle .arena-wrap { position: fixed; inset: 0; z-index: 1; }
+  #screen-battle #arena {
+    width: 100vw;
+    height: 100dvh; /* dynamic viewport height: fills the actually-visible area */
+    aspect-ratio: auto;
+    border: none;
+    border-radius: 0;
+  }
+
+  /* HUD floats across the top. */
+  #screen-battle .battle-hud {
+    position: fixed;
+    top: 8px; left: 0; right: 0;
+    z-index: 60;
+    padding: 0 16px;
+    margin: 0;
+    pointer-events: none;
+  }
+  #screen-battle .fighter-hud { max-width: 38vw; }
+
+  /* Controls overlaid bottom corners: stick bottom-left, abilities bottom-right. */
+  #screen-battle .battle-controls {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    z-index: 60;
+    pointer-events: none;
+    background: none;
+  }
+  #screen-battle .joystick {
+    position: fixed;
+    bottom: 18px; left: 18px;
+    width: 100px; height: 100px;
+    z-index: 80;
+    pointer-events: auto;
+  }
+  #screen-battle .joystick-knob { width: 42px; height: 42px; top: 29px; left: 29px; }
+  #screen-battle .ability-buttons {
+    position: fixed;
+    bottom: 18px; right: 18px;
+    z-index: 80;
+    pointer-events: auto;
+  }
+  #screen-battle .ability-btn { width: 66px; height: 66px; pointer-events: auto; }
+}
+
+.battle-controls { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 14px; }
+
+.joystick { width: 86px; height: 86px; border-radius: 50%; background: var(--bg-card); border: 1px solid var(--steel-dim); position: relative; flex-shrink: 0; touch-action: none; }
+.joystick-knob { width: 36px; height: 36px; border-radius: 50%; background: var(--steel); position: absolute; top: 25px; left: 25px; pointer-events: none; }
+
+/* Compact round ability buttons with a radial cooldown sweep (no bar). */
+.ability-buttons { display: flex; gap: 12px; }
+.ability-btn {
+  --glow: var(--steel);
+  position: relative;
+  width: 60px; height: 60px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--glow) 55%, transparent);
+  background: rgba(20, 26, 36, 0.85);
+  color: var(--text);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 0 12px -6px var(--glow);
+  transition: transform 0.12s, box-shadow 0.2s, filter 0.2s;
+  touch-action: manipulation;
+}
+.ability-btn.special { --glow: var(--amber); }
+.ability-btn:enabled { box-shadow: 0 0 16px -4px var(--glow); }
+.ability-btn:active { transform: scale(0.93); }
+.ability-btn:disabled { cursor: default; }
+.ability-icon { font-size: 20px; line-height: 1; color: var(--glow); text-shadow: 0 0 8px var(--glow); pointer-events: none; }
+.ability-name { font-size: 8.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.85; pointer-events: none; }
+/* The cooldown overlay is a dark wedge that shrinks as the move charges, revealed via
+   a conic gradient driven by --cd (0 = ready, 1 = full cooldown). */
+.cooldown-overlay {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(rgba(8,11,18,0.82) calc(var(--cd, 0) * 360deg), transparent 0deg);
+  pointer-events: none;
+}
+
+/* ---------- Orientation lock (mobile, landscape required) ---------- */
+.rotate-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 1000;
+  background: var(--bg);
+  align-items: center; justify-content: center;
+  text-align: center; padding: 30px;
+}
+.rotate-card { max-width: 280px; }
+.rotate-icon { font-size: 54px; color: var(--amber); animation: rotate-hint 2s ease-in-out infinite; }
+@keyframes rotate-hint { 0%,100% { transform: rotate(0); } 50% { transform: rotate(90deg); } }
+.rotate-overlay p { font-size: 15px; color: var(--text); margin-top: 16px; line-height: 1.5; }
+/* Show the overlay only on touch devices held in portrait. */
+@media (orientation: portrait) and (pointer: coarse) {
+  .rotate-overlay { display: flex; }
+}
+
+/* ---------- Result / champion ---------- */
+.result-text { text-align: center; color: var(--text-dim); margin-bottom: 22px; font-size: 14px; }
+.champion-card { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 22px; }
+.champion-card .bey-card-name { font-size: 22px; font-family: var(--font-display); letter-spacing: 0.03em; }
