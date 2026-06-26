@@ -162,25 +162,9 @@ main { flex: 1; padding: 0 18px 28px; }
   border-radius: var(--radius);
 }
 
-/* Floating calibrate button — only on touch + landscape. Hidden elsewhere. */
-.calibrate-float {
-  display: none;
-  position: fixed;
-  top: 10px; right: 12px;
-  z-index: 95;
-  background: rgba(8, 12, 28, 0.85);
-  color: var(--amber);
-  border: 1px solid var(--amber);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-family: var(--font-body);
-  font-weight: 700;
-  font-size: 12px;
-  cursor: pointer;
-}
-@media (pointer: coarse) and (orientation: landscape) {
-  .calibrate-float { display: block; }
-}
+/* Start screen */
+.start-blurb { text-align: center; color: var(--text-dim); margin: 8px 0 24px; font-size: 14px; }
+.start-tilt-status { text-align: center; color: var(--amber); font-size: 12px; margin-top: 14px; min-height: 16px; }
 #btn-recalibrate { display: none; }
 @media (pointer: coarse) { #btn-recalibrate { display: block; } }
 

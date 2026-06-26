@@ -1231,6 +1231,8 @@ function startTiltListening() {
   if (tiltListening) return;
   tiltListening = true;
   window.addEventListener('deviceorientation', onDeviceOrientation, true);
+  // Some Android devices only deliver populated beta/gamma on the absolute event.
+  window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
 }
 // Ask for motion permission (needed on iOS) from a user gesture, then start listening.
 function requestTiltPermission() {
@@ -1246,9 +1248,8 @@ function calibrateTilt() {
   tiltCalib.gamma = tiltRaw.gamma;
   tiltVector.x = 0; tiltVector.y = 0;
 }
-// Called by the Calibrate button. Ensures listening + permission, then calibrates to
-// the current pose. If readings aren't in yet, it retries for a moment instead of
-// silently failing.
+// Called by a Calibrate button. Ensures listening + permission, then calibrates to the
+// current pose. If readings aren't in yet, retries for a moment instead of failing.
 function doCalibrate(onDone) {
   requestTiltPermission();
   startTiltListening();
@@ -1260,14 +1261,13 @@ function doCalibrate(onDone) {
       if (onDone) onDone(true);
       return;
     }
-    if (tries++ < 20) { setTimeout(attempt, 50); return; } // wait up to ~1s for sensors
+    if (tries++ < 30) { setTimeout(attempt, 50); return; } // wait up to ~1.5s for sensors
     if (onDone) onDone(false); // no sensors available
   })();
 }
 function tiltUnavailableFallback() {
   tiltEnabled = false;
   $('joystick').style.display = 'block';
-  alert('Motion sensors unavailable on this device — use the on-screen stick instead.');
 }
 
 function knobRest() {
@@ -1327,6 +1327,9 @@ function setupJoystick() {
 // ---------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   initThree();
+  // Prime motion sensors on the very first tap anywhere (iOS needs a user gesture).
+  // This gets deviceorientation events flowing well before the user calibrates.
+  document.addEventListener('pointerdown', () => { requestTiltPermission(); }, { once: true });
   // Try to lock to landscape on mobile (best-effort; browsers may ignore unless in
   // fullscreen). The CSS overlay still prompts the user to rotate if not landscape.
   if (screen.orientation && screen.orientation.lock) {
@@ -1389,17 +1392,41 @@ document.addEventListener('DOMContentLoaded', () => {
     GAME.pendingMatch = null;
     showScreen('mode');
   });
-  function runCalibrate(btn) {
+  function runCalibrate(btn, statusEl) {
     const prev = btn ? btn.textContent : '';
     if (btn) btn.textContent = 'Calibrating…';
+    if (statusEl) statusEl.textContent = 'Reading motion sensors…';
     requestFullscreen();
     doCalibrate((ok) => {
       if (btn) btn.textContent = ok ? 'Calibrated ✓' : prev;
+      if (statusEl) statusEl.textContent = ok ? 'Tilt ready — steer by tilting your phone.' : 'No motion sensors — the on-screen stick will be used.';
       if (!ok) tiltUnavailableFallback();
-      if (btn && ok) setTimeout(() => { btn.textContent = prev; }, 1200);
     });
   }
-  $('btn-calibrate-float').addEventListener('click', () => runCalibrate($('btn-calibrate-float')));
-  $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate')));
+  $('btn-start').addEventListener('click', () => {
+    unlockAudio();
+    requestFullscreen();
+    const isTouch = window.matchMedia('(pointer: coarse)').matches;
+    if (isTouch) {
+      // Calibrate now, then go to the menu once done (or after a short wait).
+      runCalibrate(null, $('start-tilt-status'));
+      setTimeout(() => showScreen('mode'), 700);
+    } else {
+      showScreen('mode');
+    }
+  });
+  // Live readout on the start screen so the user can SEE sensors are detected.
+  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+  if (isTouchDevice) {
+    requestTiltPermission();
+    setInterval(() => {
+      const st = $('start-tilt-status');
+      if (!st || !$('screen-start').classList.contains('active')) return;
+      st.textContent = tiltHasReading
+        ? 'Motion detected ✓ — tap Start to calibrate and play.'
+        : 'Tip: tap Start to enable motion controls.';
+    }, 400);
+  }
+  $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
   setupJoystick();
 });

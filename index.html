@@ -16,13 +16,18 @@
     </div>
   </div>
 
-  <button id="btn-calibrate-float" class="calibrate-float">⟲ Calibrate tilt</button>
-
   <header class="topbar"><h1 class="logo">BEY<span>ARENA</span></h1></header>
 
   <main>
 
-    <section id="screen-mode" class="screen active">
+    <section id="screen-start" class="screen active">
+      <h2 class="screen-title">BEY ARENA</h2>
+      <p class="start-blurb">Spin, clash, and ring out your rival.</p>
+      <button id="btn-start" class="btn btn-primary">Start</button>
+      <p id="start-tilt-status" class="start-tilt-status"></p>
+    </section>
+
+    <section id="screen-mode" class="screen">
       <h2 class="screen-title">Choose a Mode</h2>
       <div class="mode-list">
         <button id="btn-mode-tournament" class="btn btn-primary mode-btn">
