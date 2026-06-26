@@ -1245,8 +1245,8 @@ function onDeviceMotion(e) {
   else if (ang === -90 || ang === 270) { leanX = -dPitch; leanY = -dRoll; }
   else if (ang === 180) { leanX = -dRoll; leanY = -dPitch; }
   else { leanX = dRoll; leanY = dPitch; } // portrait
-  // Normalize: full steer at ~22° of lean.
-  const FULL = 22 * Math.PI / 180;
+  // Normalize: full steer at ~14° of lean (more sensitive — less tilt needed).
+  const FULL = 14 * Math.PI / 180;
   let nx = clamp(leanX / FULL, -1, 1);
   let ny = clamp(leanY / FULL, -1, 1);
   nx = Math.abs(nx) < TILT_DEAD ? 0 : nx;
@@ -1466,7 +1466,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v7 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v8 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
