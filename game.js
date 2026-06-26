@@ -1251,9 +1251,10 @@ function onDeviceMotion(e) {
   let ny = clamp(leanY / FULL, -1, 1);
   nx = Math.abs(nx) < TILT_DEAD ? 0 : nx;
   ny = Math.abs(ny) < TILT_DEAD ? 0 : ny;
-  // World +y points toward the camera (screen-down), so screen-up must DECREASE y.
+  // World +y points toward the camera (screen-down). The phone's up/down lean was
+  // inverted relative to the bey, so flip Y: tilt forward -> bey up, tilt back -> down.
   tiltVector.x = nx;
-  tiltVector.y = -ny;
+  tiltVector.y = ny;
 }
 function startTiltListening() {
   if (tiltListening) return;
@@ -1460,10 +1461,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const ax = tiltVector.x, ay = tiltVector.y;
       let arrow = '•';
       if (Math.hypot(ax, ay) > 0.18) {
-        const ang = Math.atan2(ay, ax); // ay>0 = world down on screen
         const dirs = ['→','↗','↑','↖','←','↙','↓','↘'];
-        // Note: tiltVector.y is world-y (down positive), so up-arrow when ay<0.
-        const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
+        // tiltVector.y > 0 now moves the bey UP the screen, so the up-arrow is at +y.
+        const idx = Math.round((Math.atan2(ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
       st.textContent = 'Motion detected ✓  ' + arrow + '   (tap Start to play)';
