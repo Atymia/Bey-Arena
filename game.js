@@ -1251,9 +1251,10 @@ function onDeviceMotion(e) {
   let ny = clamp(leanY / FULL, -1, 1);
   nx = Math.abs(nx) < TILT_DEAD ? 0 : nx;
   ny = Math.abs(ny) < TILT_DEAD ? 0 : ny;
-  // Tilt forward/back maps to bey up/down on screen.
+  // Vertical sign chosen so tilting toward you (south) moves the bey south.
+  const TILT_Y_SIGN = 1;
   tiltVector.x = nx;
-  tiltVector.y = -ny;
+  tiltVector.y = TILT_Y_SIGN * ny;
 }
 function startTiltListening() {
   if (tiltListening) return;
@@ -1461,11 +1462,11 @@ document.addEventListener('DOMContentLoaded', () => {
       let arrow = '•';
       if (Math.hypot(ax, ay) > 0.18) {
         const dirs = ['→','↗','↑','↖','←','↙','↓','↘'];
-        // tiltVector.y < 0 moves the bey UP the screen, so up-arrow at -y.
+        // Screen-up is world -y, so flip y for the on-screen arrow.
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'Motion detected ✓  ' + arrow + '   (tap Start to play)';
+      st.textContent = 'v7 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
