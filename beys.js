@@ -64,7 +64,7 @@ const BEY_ROSTER = [
     type: 'defense',
     colors: { primary: '#3a9d4e', secondary: '#22692f', bit: '#e08a2a' },
     emblem: 'hex',
-    stats: { attack: 3, defense: 10, stamina: 8, speed: 3 },
+    stats: { attack: 2, defense: 10, stamina: 7, speed: 3 },
     moves: {
       base: { name: 'Iron Shell', power: 1.15, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'Abyssal Wall', power: 1.8, charge: 11, cooldown: 13, duration: 0.9 }

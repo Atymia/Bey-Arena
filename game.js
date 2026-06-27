@@ -38,6 +38,16 @@ function atkCombatMult(atk) { return 0.5 + stat100(atk) / 100; }
 function defMult(def) { return 0.5 + stat100(def) / 100; }
 function spinDefMult(def) { return 0.5 + stat100(def) / 58; }
 
+// Beyblade-style type triangle: attack > stamina > defense > attack. Returns a damage
+// multiplier for `attackerType` hitting `defenderType` — a soft edge (±25%) so the
+// matchup has rock-paper-scissors flavor without making any fight unwinnable.
+const TYPE_BEATS = { attack: 'stamina', stamina: 'defense', defense: 'attack' };
+function typeAdvantage(attackerType, defenderType) {
+  if (TYPE_BEATS[attackerType] === defenderType) return 1.25;   // favorable
+  if (TYPE_BEATS[defenderType] === attackerType) return 0.8;    // unfavorable
+  return 1.0; // neutral (incl. balance vs anything, and mirror types)
+}
+
 
 // ---------------------------------------------------------------
 // Flat placeholder icon art — used only for the small 2D cards
@@ -805,8 +815,11 @@ function initBattleState(beyA, beyB, playerIsA) {
     scene3d.add(meshA);
     scene3d.add(meshB);
   }
-  $('hud-name-a').textContent = beyA.name;
-  $('hud-name-b').textContent = beyB.name;
+  // The left HUD slot ('a' elements) always shows the PLAYER; the right ('b') the rival.
+  const playerBey = playerIsA ? beyA : beyB;
+  const rivalBey = playerIsA ? beyB : beyA;
+  $('hud-name-a').textContent = playerBey.name;
+  $('hud-name-b').textContent = rivalBey.name;
   $('hud-stamina-a').style.width = '100%';
   $('hud-stamina-b').style.width = '100%';
   $('hud-pct-a').textContent = '100%';
@@ -976,12 +989,14 @@ function updateBattle(dt) {
   const cdist = Math.hypot(cdx, cdy);
   if (!BATTLE.spinOutPending && !a.out && !b.out && cdist < BEY_R * 2 && cdist > 0.001) resolveCollision(a, b, cdx, cdy, cdist);
 
-  // HUD: spin shown as a percentage (1.0 -> "100%"), bar width = spin fraction.
-  const aPct = Math.round(a.spin * 100), bPct = Math.round(b.spin * 100);
-  $('hud-stamina-a').style.width = aPct + '%';
-  $('hud-stamina-b').style.width = bPct + '%';
-  $('hud-pct-a').textContent = aPct + '%';
-  $('hud-pct-b').textContent = bPct + '%';
+  // HUD: spin as a percentage. Left slot ('a' ids) = player, right slot ('b') = rival.
+  const playerF = a.isPlayer ? a : b;
+  const rivalF = a.isPlayer ? b : a;
+  const pPct = Math.round(playerF.spin * 100), rPct = Math.round(rivalF.spin * 100);
+  $('hud-stamina-a').style.width = pPct + '%';
+  $('hud-stamina-b').style.width = rPct + '%';
+  $('hud-pct-a').textContent = pPct + '%';
+  $('hud-pct-b').textContent = rPct + '%';
 
   // Move readiness: ready when the timer hits 0. The conic overlay (--cd) shows the
   // remaining cooldown as a shrinking dark wedge (0 = ready, 1 = just used).
@@ -1090,10 +1105,13 @@ function resolveCollision(a, b, dx, dy, dist) {
   BATTLE.impactCooldown = IMPACT_COOLDOWN;
 
   // Base spin loss from closing speed, clamped to the reference range, then modulated
-  // by attacker attack (boosted by an active move) and defender spin-defense.
+  // by attacker attack (boosted by an active move), defender spin-defense, and the
+  // type-advantage triangle (attack>stamina>defense>attack).
   const baseSpinLoss = Math.min(MAX_SPIN_LOSS, Math.max(MIN_SPIN_LOSS, closing * SPIN_LOSS_SCALE));
-  const lossToA = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(b.bey.stats.attack) * boostB / spinDefMult(a.bey.stats.defense));
-  const lossToB = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(a.bey.stats.attack) * boostA / spinDefMult(b.bey.stats.defense));
+  const advAtoB = typeAdvantage(a.bey.type, b.bey.type);
+  const advBtoA = typeAdvantage(b.bey.type, a.bey.type);
+  const lossToA = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(b.bey.stats.attack) * boostB * advBtoA / spinDefMult(a.bey.stats.defense));
+  const lossToB = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(a.bey.stats.attack) * boostA * advAtoB / spinDefMult(b.bey.stats.defense));
   a.spin = Math.max(0, a.spin - lossToA);
   b.spin = Math.max(0, b.spin - lossToB);
 
@@ -1163,7 +1181,7 @@ function updateActiveSpecial(dt) {
 
   // Guaranteed drain on the opponent for the whole duration. Total drain scales with
   // the move's power and the attack/defense matchup, spread across the duration.
-  const totalDrain = 0.10 * s.power * atkCombatMult(attacker.bey.stats.attack) / spinDefMult(defender.bey.stats.defense);
+  const totalDrain = 0.10 * s.power * atkCombatMult(attacker.bey.stats.attack) * typeAdvantage(attacker.bey.type, defender.bey.type) / spinDefMult(defender.bey.stats.defense);
   defender.spin = Math.max(0, defender.spin - (totalDrain / s.duration) * dt);
 
   // Keep the attacker boosted (extra collision damage) for the duration too.
@@ -1522,7 +1540,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v13 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v14 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
