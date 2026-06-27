@@ -1094,6 +1094,12 @@ function resolveCollision(a, b, dx, dy, dist) {
   a.spin = Math.max(0, a.spin - lossToA);
   b.spin = Math.max(0, b.spin - lossToB);
 
+  // Landing a BASE-MOVE hit (boost was active) rewards the attacker by trimming their
+  // special-move cooldown, so a bey that actually connects can use its special sooner.
+  const SPECIAL_CD_REFUND = 1.6; // seconds shaved off the special cooldown on a base hit
+  if (a.boostTimer > 0 && a.specialTimer > 0) a.specialTimer = Math.max(0, a.specialTimer - SPECIAL_CD_REFUND);
+  if (b.boostTimer > 0 && b.specialTimer > 0) b.specialTimer = Math.max(0, b.specialTimer - SPECIAL_CD_REFUND);
+
   a.boostTimer = 0;
   b.boostTimer = 0;
   playHitSound(); // every registered impact (gated by the cooldown above)
@@ -1252,8 +1258,8 @@ function onDeviceMotion(e) {
   else if (ang === -90 || ang === 270) { leanX = -dPitch; leanY = -dRoll; }
   else if (ang === 180) { leanX = -dRoll; leanY = -dPitch; }
   else { leanX = dRoll; leanY = dPitch; } // portrait
-  // Normalize: full steer at ~14° of lean (more sensitive — less tilt needed).
-  const FULL = 14 * Math.PI / 180;
+  // Normalize: full steer at ~9° of lean (high sensitivity — small tilt is enough).
+  const FULL = 9 * Math.PI / 180;
   let nx = clamp(leanX / FULL, -1, 1);
   let ny = clamp(leanY / FULL, -1, 1);
   nx = Math.abs(nx) < TILT_DEAD ? 0 : nx;
@@ -1445,13 +1451,35 @@ document.addEventListener('DOMContentLoaded', () => {
     unlockAudio();
     requestFullscreen();
     const isTouch = window.matchMedia('(pointer: coarse)').matches;
-    if (isTouch) {
-      // Calibrate now, then go to the menu once done (or after a short wait).
-      runCalibrate(null, $('start-tilt-status'));
-      setTimeout(() => showScreen('mode'), 700);
-    } else {
+    if (!isTouch) { showScreen('mode'); return; }
+    // Mobile: calibrate to the CURRENT pose, waiting until a real reading arrives.
+    const btn = $('btn-start');
+    const st = $('start-tilt-status');
+    btn.disabled = true;
+    btn.textContent = 'Calibrating…';
+    if (st) st.textContent = 'Hold the phone still… reading sensors.';
+    requestTiltPermission();
+    startTiltListening();
+    let waited = 0;
+    (function waitForReading() {
+      if (tiltHasReading) {
+        tiltEnabled = true;
+        calibrateTilt();           // neutral = how you're holding it right now
+        btn.disabled = false;
+        btn.textContent = 'Start';
+        if (st) st.textContent = 'Calibrated ✓ — tilt to steer.';
+        showScreen('mode');
+        return;
+      }
+      waited += 60;
+      if (waited < 2500) { setTimeout(waitForReading, 60); return; } // wait up to 2.5s
+      // No sensors at all: fall back to the on-screen stick and continue.
+      btn.disabled = false;
+      btn.textContent = 'Start';
+      if (st) st.textContent = 'No motion sensors — the on-screen stick will be used.';
+      tiltUnavailableFallback();
       showScreen('mode');
-    }
+    })();
   });
   // Live readout on the start screen so the user can SEE sensors are detected and which
   // way the bey will move. We temporarily enable tilt + auto-calibrate for the preview.
@@ -1473,7 +1501,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v9 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v10 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
