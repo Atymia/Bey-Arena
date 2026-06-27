@@ -899,10 +899,10 @@ function updateBattle(dt) {
   if (inGrace) BATTLE.launchGrace = Math.max(0, BATTLE.launchGrace - dt);
 
   if (!inGrace) {
+    if (tiltEnabled) updateTiltVector(); // refresh smoothed tilt each frame
     const inputVec = tiltEnabled ? tiltVector : joystickVector;
-    const steerForce = tiltEnabled ? 200 : 260; // tilt slightly gentler for control
-    player.vx += inputVec.x * steerForce * dt;
-    player.vy += inputVec.y * steerForce * dt;
+    player.vx += inputVec.x * 260 * dt;
+    player.vy += inputVec.y * 260 * dt;
     aiSteer(ai, player, dt);
   }
 
@@ -1228,8 +1228,12 @@ function requestFullscreen() {
 }
 
 // ---- Tilt steering via the gravity vector (devicemotion) ----
-// Using accelerationIncludingGravity avoids the gimbal-lock problem of beta/gamma
-// angles: the gravity direction is stable at any phone pose, like Play Store games.
+// The raw accelerometer is noisy (hand tremor, vibration), which makes naive tilt
+// jerky. We low-pass filter the gravity vector to recover the smooth, stable gravity
+// direction — exactly what Play Store tilt games do — then steer from that.
+let gravFilt = { x: 0, y: 0, z: 0 };   // low-pass filtered gravity
+let gravFiltInit = false;
+const GRAV_ALPHA = 0.82;               // smoothing weight (higher = smoother, a touch laggier)
 function screenAngleDeg() {
   if (screen.orientation && screen.orientation.angle != null) return screen.orientation.angle;
   return window.orientation || 0;
@@ -1239,39 +1243,43 @@ function onDeviceMotion(e) {
   if (!g || g.x == null) return;
   // iOS reports gravity with opposite sign to Android; normalize.
   const s = IS_IOS ? -1 : 1;
-  gravRaw.x = g.x * s;
-  gravRaw.y = g.y * s;
-  gravRaw.z = (g.z || 0) * s;
+  const rx = g.x * s, ry = g.y * s, rz = (g.z || 0) * s;
+  // Low-pass filter: blend the new reading into the running gravity estimate. This
+  // strips out the high-frequency hand jitter and keeps the slow gravity direction.
+  if (!gravFiltInit) { gravFilt.x = rx; gravFilt.y = ry; gravFilt.z = rz; gravFiltInit = true; }
+  else {
+    gravFilt.x = GRAV_ALPHA * gravFilt.x + (1 - GRAV_ALPHA) * rx;
+    gravFilt.y = GRAV_ALPHA * gravFilt.y + (1 - GRAV_ALPHA) * ry;
+    gravFilt.z = GRAV_ALPHA * gravFilt.z + (1 - GRAV_ALPHA) * rz;
+  }
+  gravRaw.x = gravFilt.x; gravRaw.y = gravFilt.y; gravRaw.z = gravFilt.z;
   tiltHasReading = true;
-  if (!tiltEnabled) return;
-
-  // Derive tilt as ANGLES from the full gravity vector. Using atan2 over the whole 3D
-  // vector means it stays meaningful even when the phone is held upright (where flat
-  // x/y components barely change). roll = left/right lean, pitch = front/back lean.
+}
+// Compute the desired steering vector from the (filtered) gravity. Called every frame
+// from the battle loop so steering updates smoothly even between sensor events.
+function updateTiltVector() {
+  if (!tiltEnabled || !tiltHasReading) return;
   const gx = gravRaw.x, gy = gravRaw.y, gz = gravRaw.z;
   const roll = Math.atan2(gx, Math.sqrt(gy * gy + gz * gz));   // device left/right lean
   const pitch = Math.atan2(gy, Math.sqrt(gx * gx + gz * gz));  // device front/back lean
-  // Delta from the calibrated neutral pose (radians).
   let dRoll = roll - gravCalib.roll;
   let dPitch = pitch - gravCalib.pitch;
-  // Map device lean axes to screen axes by orientation. In landscape the device's
-  // roll/pitch swap roles relative to the screen.
   const ang = screenAngleDeg();
   let leanX, leanY; // screen right(+) / screen up(+), in radians
   if (ang === 90) { leanX = dPitch; leanY = dRoll; }
   else if (ang === -90 || ang === 270) { leanX = -dPitch; leanY = -dRoll; }
   else if (ang === 180) { leanX = -dRoll; leanY = -dPitch; }
   else { leanX = dRoll; leanY = dPitch; } // portrait
-  // Normalize: full steer at ~9° of lean (high sensitivity — small tilt is enough).
-  const FULL = 9 * Math.PI / 180;
+  const FULL = 10 * Math.PI / 180; // full steer at ~10° of lean
   let nx = clamp(leanX / FULL, -1, 1);
   let ny = clamp(leanY / FULL, -1, 1);
   nx = Math.abs(nx) < TILT_DEAD ? 0 : nx;
   ny = Math.abs(ny) < TILT_DEAD ? 0 : ny;
-  // Vertical sign chosen so tilting toward you (south) moves the bey south.
+  // Extra output smoothing toward the target for a buttery, lag-free-feeling glide.
   const TILT_Y_SIGN = 1;
-  tiltVector.x = nx;
-  tiltVector.y = TILT_Y_SIGN * ny;
+  const targetX = nx, targetY = TILT_Y_SIGN * ny;
+  tiltVector.x += (targetX - tiltVector.x) * 0.35;
+  tiltVector.y += (targetY - tiltVector.y) * 0.35;
 }
 function startTiltListening() {
   if (tiltListening) return;
@@ -1497,6 +1505,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!tiltHasReading) { st.textContent = 'Tip: tap Start to enable motion controls.'; return; }
       // Preview mode: enable + calibrate once so the arrow reflects real tilt.
       if (!previewCalibrated) { tiltEnabled = true; calibrateTilt(); previewCalibrated = true; }
+      updateTiltVector();
       const ax = tiltVector.x, ay = tiltVector.y;
       let arrow = '•';
       if (Math.hypot(ax, ay) > 0.18) {
@@ -1505,7 +1514,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v11 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v12 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
