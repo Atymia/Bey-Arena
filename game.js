@@ -770,6 +770,13 @@ function beginBattleForMatch(match) {
   const playerIsA = match.a.id === GAME.playerBeyId;
   unlockAudio();
   requestFullscreen();
+  // If the device has motion and we haven't calibrated yet (or it missed), calibrate
+  // now to the current pose so tilt steering is always ready when the battle begins.
+  if (window.matchMedia('(pointer: coarse)').matches) {
+    requestTiltPermission();
+    startTiltListening();
+    if (tiltHasReading) { tiltEnabled = true; calibrateTilt(); }
+  }
   initBattleState(match.a, match.b, playerIsA);
   $('set-score').textContent = `${match.score[match.a.id]} - ${match.score[match.b.id]}`;
   showScreen('battle');
@@ -1466,7 +1473,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v8 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v9 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));

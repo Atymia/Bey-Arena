@@ -1,0 +1,22 @@
+{
+  "name": "Bey Arena",
+  "short_name": "Bey Arena",
+  "description": "A fan-made spinning-top battle arena.",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0e13",
+  "theme_color": "#0b0e13",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%230b0e13'/%3E%3Ccircle cx='96' cy='96' r='62' fill='none' stroke='%23ffb627' stroke-width='10'/%3E%3Ccircle cx='96' cy='96' r='22' fill='%23ffb627'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%230b0e13'/%3E%3Ccircle cx='256' cy='256' r='165' fill='none' stroke='%23ffb627' stroke-width='26'/%3E%3Ccircle cx='256' cy='256' r='58' fill='%23ffb627'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

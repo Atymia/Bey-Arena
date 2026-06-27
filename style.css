@@ -30,10 +30,14 @@ html, body {
 
 #app {
   min-height: 100vh;
+  min-height: 100dvh; /* dynamic: excludes browser chrome so menus aren't oversized */
   max-width: 480px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
+  /* Respect the iPhone notch / rounded corners. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 .topbar { padding: 18px 20px 8px; text-align: center; }
@@ -168,6 +172,42 @@ main { flex: 1; padding: 0 18px 28px; }
 #btn-recalibrate { display: none; }
 @media (pointer: coarse) { #btn-recalibrate { display: block; } }
 
+@media (pointer: coarse) and (orientation: landscape) {
+  #app { max-width: none; }
+  .topbar { display: none; }
+  main { padding: 0; }
+
+  /* Menu screens: fit the viewport, scroll only if truly needed, compact spacing so
+     buttons are always reachable without zooming/scrolling on tall phones. */
+  #screen-start.active, #screen-mode.active, #screen-select.active,
+  #screen-bracket.active, #screen-result.active, #screen-champion.active {
+    position: fixed;
+    inset: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 12px max(16px, env(safe-area-inset-left)) 12px max(16px, env(safe-area-inset-right));
+    z-index: 40;
+  }
+  #screen-start.active > *, #screen-mode.active > *, #screen-select.active > *,
+  #screen-bracket.active > *, #screen-result.active > *, #screen-champion.active > * {
+    width: 100%;
+    max-width: 440px;
+  }
+  /* Tighten vertical rhythm in landscape menus. */
+  .screen-title { font-size: 20px; margin: 6px 0 8px; }
+  .mode-list { margin: 14px 0; gap: 10px; }
+  .mode-btn { padding: 12px 16px; }
+  .carousel { margin: 12px 0 8px; }
+  .carousel-card { padding: 14px 16px; }
+  .carousel-card canvas { width: 96px; height: 96px; }
+  .carousel-dots { margin-bottom: 12px; }
+  .btn { padding: 12px 16px; }
+}
+
 /* ============================================================
    Fullscreen landscape layout for mobile play.
    The battle screen becomes an immersive full-viewport view:
@@ -193,16 +233,22 @@ main { flex: 1; padding: 0 18px 28px; }
     border-radius: 0;
   }
 
-  /* HUD floats across the top. */
+  /* HUD floats across the top: player left, VS centered, rival right. */
   #screen-battle .battle-hud {
     position: fixed;
-    top: 8px; left: 0; right: 0;
+    top: 8px;
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
     z-index: 60;
-    padding: 0 16px;
+    padding: 0;
     margin: 0;
     pointer-events: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
   }
-  #screen-battle .fighter-hud { max-width: 38vw; }
+  #screen-battle .fighter-hud { flex: 0 1 40%; max-width: 40%; }
+  #screen-battle .vs-col { flex: 0 0 auto; }
 
   /* Controls overlaid bottom corners: stick bottom-left, abilities bottom-right. */
   #screen-battle .battle-controls {
@@ -215,7 +261,8 @@ main { flex: 1; padding: 0 18px 28px; }
   }
   #screen-battle .joystick {
     position: fixed;
-    bottom: 18px; left: 18px;
+    bottom: max(18px, env(safe-area-inset-bottom));
+    left: max(18px, env(safe-area-inset-left));
     width: 100px; height: 100px;
     z-index: 80;
     pointer-events: auto;
@@ -223,7 +270,8 @@ main { flex: 1; padding: 0 18px 28px; }
   #screen-battle .joystick-knob { width: 42px; height: 42px; top: 29px; left: 29px; }
   #screen-battle .ability-buttons {
     position: fixed;
-    bottom: 18px; right: 18px;
+    bottom: max(18px, env(safe-area-inset-bottom));
+    right: max(18px, env(safe-area-inset-right));
     z-index: 80;
     pointer-events: auto;
   }
