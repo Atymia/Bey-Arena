@@ -770,12 +770,12 @@ function beginBattleForMatch(match) {
   const playerIsA = match.a.id === GAME.playerBeyId;
   unlockAudio();
   requestFullscreen();
-  // If the device has motion and we haven't calibrated yet (or it missed), calibrate
-  // now to the current pose so tilt steering is always ready when the battle begins.
+  // Make sure sensors are listening, but DON'T recalibrate here — recalibrating every
+  // battle would capture whatever tilt the phone happens to be at and drift control.
+  // Calibration is set once via Start (and the Recalibrate button after a match).
   if (window.matchMedia('(pointer: coarse)').matches) {
     requestTiltPermission();
     startTiltListening();
-    if (tiltHasReading) { tiltEnabled = true; calibrateTilt(); }
   }
   initBattleState(match.a, match.b, playerIsA);
   $('set-score').textContent = `${match.score[match.a.id]} - ${match.score[match.b.id]}`;
@@ -825,19 +825,22 @@ function initBattleState(beyA, beyB, playerIsA) {
   $('joystick').style.display = isTouch ? 'none' : 'block';
 }
 
+let battleRafId = 0;
+let battleGen = 0; // increments each battle; a loop stops if its generation is stale
 function startBattleLoop() {
+  cancelAnimationFrame(battleRafId);   // kill any previous loop, whatever battle it was
+  const myGen = ++battleGen;           // this loop's identity
   BATTLE.lastT = performance.now();
-  cancelAnimationFrame(BATTLE.rafId);
-  BATTLE.rafId = requestAnimationFrame(battleLoop);
-}
-function battleLoop(t) {
-  if (!BATTLE || BATTLE.ended) return;
-  const dt = Math.min(0.05, (t - BATTLE.lastT) / 1000);
-  BATTLE.lastT = t;
-  BATTLE.elapsed += dt;
-  updateBattle(dt);
-  renderBattle();
-  if (!BATTLE.ended) BATTLE.rafId = requestAnimationFrame(battleLoop);
+  const step = (t) => {
+    if (myGen !== battleGen || !BATTLE || BATTLE.ended) return; // stale or finished
+    const dt = Math.min(0.05, (t - BATTLE.lastT) / 1000);
+    BATTLE.lastT = t;
+    BATTLE.elapsed += dt;
+    updateBattle(dt);
+    renderBattle();
+    if (myGen === battleGen && !BATTLE.ended) battleRafId = requestAnimationFrame(step);
+  };
+  battleRafId = requestAnimationFrame(step);
 }
 
 function aiSteer(ai, player, dt) {
@@ -1180,7 +1183,8 @@ function renderBattle() {
 
 function endBattle(winnerF, loserF, reason) {
   BATTLE.ended = true;
-  cancelAnimationFrame(BATTLE.rafId);
+  battleGen++;                       // invalidate the running loop
+  cancelAnimationFrame(battleRafId);
   const winnerBey = winnerF.bey, loserBey = loserF.bey;
   const reasonText = reason === 'ringout'
     ? `${winnerBey.name} knocks ${loserBey.name} out of the stadium!`
@@ -1431,7 +1435,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btn-special').addEventListener('pointerdown', fireSpecial);
   $('btn-restart').addEventListener('click', () => window.location.reload());
   $('btn-back-select').addEventListener('click', () => {
-    if (BATTLE) { BATTLE.ended = true; cancelAnimationFrame(BATTLE.rafId); }
+    if (BATTLE) { BATTLE.ended = true; battleGen++; cancelAnimationFrame(battleRafId); }
     BATTLE = null;
     GAME.pendingMatch = null;
     showScreen('mode');
@@ -1501,7 +1505,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v10 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v11 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
