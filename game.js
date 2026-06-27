@@ -1233,7 +1233,7 @@ function requestFullscreen() {
 // direction — exactly what Play Store tilt games do — then steer from that.
 let gravFilt = { x: 0, y: 0, z: 0 };   // low-pass filtered gravity
 let gravFiltInit = false;
-const GRAV_ALPHA = 0.82;               // smoothing weight (higher = smoother, a touch laggier)
+const GRAV_ALPHA = 0.6;                // light smoothing (responsive, removes jitter without lag)
 function screenAngleDeg() {
   if (screen.orientation && screen.orientation.angle != null) return screen.orientation.angle;
   return window.orientation || 0;
@@ -1255,8 +1255,7 @@ function onDeviceMotion(e) {
   gravRaw.x = gravFilt.x; gravRaw.y = gravFilt.y; gravRaw.z = gravFilt.z;
   tiltHasReading = true;
 }
-// Compute the desired steering vector from the (filtered) gravity. Called every frame
-// from the battle loop so steering updates smoothly even between sensor events.
+// Compute the steering vector from the (lightly filtered) gravity. Called every frame.
 function updateTiltVector() {
   if (!tiltEnabled || !tiltHasReading) return;
   const gx = gravRaw.x, gy = gravRaw.y, gz = gravRaw.z;
@@ -1275,11 +1274,11 @@ function updateTiltVector() {
   let ny = clamp(leanY / FULL, -1, 1);
   nx = Math.abs(nx) < TILT_DEAD ? 0 : nx;
   ny = Math.abs(ny) < TILT_DEAD ? 0 : ny;
-  // Extra output smoothing toward the target for a buttery, lag-free-feeling glide.
+  // Set directly — the light gravity filter already removes jitter, so no extra output
+  // smoothing (which only added lag). This keeps it responsive to the real tilt.
   const TILT_Y_SIGN = 1;
-  const targetX = nx, targetY = TILT_Y_SIGN * ny;
-  tiltVector.x += (targetX - tiltVector.x) * 0.35;
-  tiltVector.y += (targetY - tiltVector.y) * 0.35;
+  tiltVector.x = nx;
+  tiltVector.y = TILT_Y_SIGN * ny;
 }
 function startTiltListening() {
   if (tiltListening) return;
@@ -1441,7 +1440,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   $('btn-base').addEventListener('pointerdown', fireBase);
   $('btn-special').addEventListener('pointerdown', fireSpecial);
-  $('btn-restart').addEventListener('click', () => window.location.reload());
+  $('btn-restart').addEventListener('click', () => {
+    // Reset in-place (no page reload, which would drop fullscreen) and return to menu.
+    if (BATTLE) { BATTLE.ended = true; battleGen++; cancelAnimationFrame(battleRafId); }
+    BATTLE = null;
+    GAME.pendingMatch = null;
+    GAME.matches = [];
+    GAME.playerPath = [];
+    GAME.singleMatch = null;
+    showScreen('mode');
+  });
   $('btn-back-select').addEventListener('click', () => {
     if (BATTLE) { BATTLE.ended = true; battleGen++; cancelAnimationFrame(battleRafId); }
     BATTLE = null;
@@ -1514,7 +1522,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v12 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v13 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
