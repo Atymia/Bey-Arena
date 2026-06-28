@@ -596,39 +596,57 @@ function buildBeyMesh(bey) {
   group.userData.bodyCenterY = ringY; // pivot height for tilting/toppling
 
   // --- Special-move glow (anime "bit activation") ---
-  // A soft, bit-colored halo + light that we fade in only during the special move.
-  // Starts fully off so it's never visible in normal play.
+  // The light comes ONLY from the central bit chip: a bright core, a tight halo right at
+  // the bit, and a soft beam of light rising from it — like the bit-beast erupting in
+  // the anime. The bey body itself is NOT lit. Everything starts fully off.
   const bitColor = new THREE.Color(bey.colors.bit);
+  const bitTopY = ringY + RING_H / 2 + 3; // the cap (bit) sits here
+
+  // Tight additive halo hugging just the bit chip (small, not around the whole bey).
   const haloMat = new THREE.MeshBasicMaterial({
-    color: bitColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
-    depthWrite: false
+    color: bitColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false
   });
-  const halo = new THREE.Mesh(new THREE.SphereGeometry(BEY_R * 1.25, 20, 16), haloMat);
-  halo.position.y = ringY;
-  halo.scale.set(1, 0.7, 1); // slightly squashed to hug the disc
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(BEY_R * 0.5, 16, 12), haloMat);
+  halo.position.y = bitTopY;
   group.add(halo);
 
-  const glowLight = new THREE.PointLight(bitColor, 0, BEY_R * 6);
-  glowLight.position.y = ringY + 6;
+  // A soft vertical beam of light rising out of the bit (cone, wide at top, additive).
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: bitColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide
+  });
+  const beam = new THREE.Mesh(new THREE.ConeGeometry(BEY_R * 0.7, BEY_R * 3.2, 18, 1, true), beamMat);
+  beam.rotation.x = Math.PI;               // flip so it flares wider toward the top
+  beam.position.y = bitTopY + BEY_R * 1.6; // rises above the bit
+  group.add(beam);
+
+  // Point light placed right at the bit so the spill reads as light coming FROM it.
+  const glowLight = new THREE.PointLight(bitColor, 0, BEY_R * 5);
+  glowLight.position.y = bitTopY + 2;
   group.add(glowLight);
 
   group.userData.glow = {
-    halo, haloMat, light: glowLight, bitMat,
+    halo, haloMat, beam, beamMat, light: glowLight, bitMat,
     baseEmissive: 0.18, // the bit's normal emissive level
   };
   return group;
 }
 
-// Drive the special-move glow. `level` 0..1 = off..full. A gentle pulse is layered on
-// so it shimmers like the anime without being harsh.
+// Drive the special-move glow. `level` 0..1 = off..full. Only the bit chip lights up
+// and emits a rising beam; the body stays unlit. A gentle pulse adds an anime shimmer.
 function setBeyGlow(mesh, level, timeSec) {
   if (!mesh || !mesh.userData.glow) return;
   const g = mesh.userData.glow;
-  const pulse = 0.85 + 0.15 * Math.sin(timeSec * 9); // subtle shimmer
-  const lvl = Math.max(0, Math.min(1, level)) * pulse;
-  g.haloMat.opacity = 0.32 * lvl;            // halo stays soft (not invasive)
-  g.light.intensity = 1.4 * lvl;             // bit-colored light spill
-  g.bitMat.emissiveIntensity = g.baseEmissive + 1.6 * lvl; // the bit chip itself glows
+  const pulse = 0.82 + 0.18 * Math.sin(timeSec * 10); // subtle flicker
+  const lvl = Math.max(0, Math.min(1, level));
+  const v = lvl * pulse;
+  g.bitMat.emissiveIntensity = g.baseEmissive + 2.6 * v; // the bit blazes
+  g.haloMat.opacity = 0.55 * v;                          // tight halo at the bit
+  g.beamMat.opacity = 0.35 * v;                          // rising light beam
+  g.light.intensity = 1.2 * v;                           // light spill from the bit
+  // The beam shimmers/grows a touch with the pulse for a "light erupting" feel.
+  const s = 0.9 + 0.25 * lvl + 0.08 * Math.sin(timeSec * 7);
+  g.beam.scale.set(s, 1, s);
 }
 
 const WOBBLE_SPIN_START = 0.12;  // wobble begins only below 12% life (matches reference)
@@ -1602,7 +1620,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v16 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v17 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
