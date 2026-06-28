@@ -594,7 +594,41 @@ function buildBeyMesh(bey) {
     group.add(fin);
   }
   group.userData.bodyCenterY = ringY; // pivot height for tilting/toppling
+
+  // --- Special-move glow (anime "bit activation") ---
+  // A soft, bit-colored halo + light that we fade in only during the special move.
+  // Starts fully off so it's never visible in normal play.
+  const bitColor = new THREE.Color(bey.colors.bit);
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: bitColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(BEY_R * 1.25, 20, 16), haloMat);
+  halo.position.y = ringY;
+  halo.scale.set(1, 0.7, 1); // slightly squashed to hug the disc
+  group.add(halo);
+
+  const glowLight = new THREE.PointLight(bitColor, 0, BEY_R * 6);
+  glowLight.position.y = ringY + 6;
+  group.add(glowLight);
+
+  group.userData.glow = {
+    halo, haloMat, light: glowLight, bitMat,
+    baseEmissive: 0.18, // the bit's normal emissive level
+  };
   return group;
+}
+
+// Drive the special-move glow. `level` 0..1 = off..full. A gentle pulse is layered on
+// so it shimmers like the anime without being harsh.
+function setBeyGlow(mesh, level, timeSec) {
+  if (!mesh || !mesh.userData.glow) return;
+  const g = mesh.userData.glow;
+  const pulse = 0.85 + 0.15 * Math.sin(timeSec * 9); // subtle shimmer
+  const lvl = Math.max(0, Math.min(1, level)) * pulse;
+  g.haloMat.opacity = 0.32 * lvl;            // halo stays soft (not invasive)
+  g.light.intensity = 1.4 * lvl;             // bit-colored light spill
+  g.bitMat.emissiveIntensity = g.baseEmissive + 1.6 * lvl; // the bit chip itself glows
 }
 
 const WOBBLE_SPIN_START = 0.12;  // wobble begins only below 12% life (matches reference)
@@ -770,7 +804,7 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
     specialTimer: bey.moves.special.charge,
     out: false, isPlayer, dashTimer: 0,
     fallY: 0, fallVel: 0, ringOutTimer: 0,
-    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null
+    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0
   };
 }
 
@@ -1212,6 +1246,17 @@ function updateActiveSpecial(dt) {
 function renderBattle() {
   updateMeshFromFighter(meshA, BATTLE.a);
   updateMeshFromFighter(meshB, BATTLE.b);
+  // Special-move glow: lit while a bey is the active special's attacker. Smoothly fade
+  // each bey's glow toward its target so it eases in and out, like the anime activation.
+  const sp = BATTLE.activeSpecial;
+  const now = (performance.now() / 1000);
+  [[meshA, BATTLE.a], [meshB, BATTLE.b]].forEach(([mesh, f]) => {
+    const target = (sp && sp.attacker === f) ? 1 : 0;
+    if (f.glow == null) f.glow = 0;
+    f.glow += (target - f.glow) * 0.18; // ease toward target
+    if (f.glow < 0.001) f.glow = 0;
+    setBeyGlow(mesh, f.glow, now);
+  });
   updateCamera();
   if (renderer3d) renderer3d.render(scene3d, camera3d);
 }
@@ -1557,7 +1602,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v15 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v16 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
