@@ -610,14 +610,16 @@ function buildBeyMesh(bey) {
   halo.position.y = bitTopY;
   group.add(halo);
 
-  // A soft vertical beam of light rising out of the bit (cone, wide at top, additive).
+  // A soft beam of light rising out of the bit: narrow at the bit, flaring wider as it
+  // rises, but kept short/contained like the anime. Its base sits right on the bit.
   const beamMat = new THREE.MeshBasicMaterial({
     color: bitColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
     depthWrite: false, side: THREE.DoubleSide
   });
-  const beam = new THREE.Mesh(new THREE.ConeGeometry(BEY_R * 0.7, BEY_R * 3.2, 18, 1, true), beamMat);
-  beam.rotation.x = Math.PI;               // flip so it flares wider toward the top
-  beam.position.y = bitTopY + BEY_R * 1.6; // rises above the bit
+  const BEAM_H = BEY_R * 1.4;              // short, contained height
+  const beam = new THREE.Mesh(new THREE.ConeGeometry(BEY_R * 0.8, BEAM_H, 18, 1, true), beamMat);
+  beam.rotation.x = Math.PI;              // flip so it's narrow at the bottom, wide at top
+  beam.position.y = bitTopY + BEAM_H / 2; // base of the cone sits on the bit
   group.add(beam);
 
   // Point light placed right at the bit so the spill reads as light coming FROM it.
@@ -1620,7 +1622,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v17 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v18 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
