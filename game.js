@@ -860,43 +860,60 @@ function aiSteer(ai, player, dt) {
   const dx = player.x - ai.x, dy = player.y - ai.y;
   const dist = Math.hypot(dx, dy) || 1;
   const baseForce = 110 + ai.bey.stats.speed * 8;
+  const distFromCenter = Math.hypot(ai.x - ARENA.cx, ai.y - ARENA.cy);
   let fx = 0, fy = 0;
 
   switch (ai.bey.type) {
     case 'attack':
-      fx = (dx / dist) * baseForce * 1.3;
-      fy = (dy / dist) * baseForce * 1.3;
+      // Aggressive: chase the opponent and periodically dash in to ram.
+      fx = (dx / dist) * baseForce * 1.25;
+      fy = (dy / dist) * baseForce * 1.25;
       ai.dashTimer -= dt;
-      if (ai.dashTimer <= 0 && Math.hypot(ai.x - ARENA.cx, ai.y - ARENA.cy) < ARENA.r * 0.55) {
-        ai.vx += (dx / dist) * 120;
-        ai.vy += (dy / dist) * 120;
-        ai.dashTimer = 1.6 + Math.random() * 0.8;
+      if (ai.dashTimer <= 0 && distFromCenter < ARENA.r * 0.7) {
+        ai.vx += (dx / dist) * 130;
+        ai.vy += (dy / dist) * 130;
+        ai.dashTimer = 1.4 + Math.random() * 0.8;
       }
       break;
     case 'defense': {
-      const toCenter = Math.hypot(ai.x - ARENA.cx, ai.y - ARENA.cy) || 1;
-      fx += -((ai.x - ARENA.cx) / toCenter) * 40;
-      fy += -((ai.y - ARENA.cy) / toCenter) * 40;
-      if (dist < 95) { fx += (dx / dist) * baseForce * 0.6; fy += (dy / dist) * baseForce * 0.6; }
+      // Holds the center like a wall; only lunges to counter when the foe is close.
+      const toC = distFromCenter || 1;
+      fx += -((ai.x - ARENA.cx) / toC) * 55;
+      fy += -((ai.y - ARENA.cy) / toC) * 55;
+      if (dist < 100) { fx += (dx / dist) * baseForce * 0.5; fy += (dy / dist) * baseForce * 0.5; }
       break;
     }
     case 'stamina': {
-      const angleNow = Math.atan2(ai.y - ARENA.cy, ai.x - ARENA.cx);
-      const orbitR = ARENA.r * 0.62;
-      const tx = ARENA.cx + Math.cos(angleNow + 0.6) * orbitR;
-      const ty = ARENA.cy + Math.sin(angleNow + 0.6) * orbitR;
-      const odx = tx - ai.x, ody = ty - ai.y;
-      const od = Math.hypot(odx, ody) || 1;
-      fx = (odx / od) * baseForce * 0.7;
-      fy = (ody / od) * baseForce * 0.7;
+      // Conserves energy: stays calm near the CENTER and avoids clashes (it wins by
+      // outlasting, not by moving). Gentle drift away from the opponent if very close.
+      const toC = distFromCenter || 1;
+      // Pull toward a small radius around center.
+      const targetR = ARENA.r * 0.2;
+      const pull = (distFromCenter - targetR);
+      fx += -((ai.x - ARENA.cx) / toC) * pull * 0.5;
+      fy += -((ai.y - ARENA.cy) / toC) * pull * 0.5;
+      if (dist < 80) { fx -= (dx / dist) * baseForce * 0.4; fy -= (dy / dist) * baseForce * 0.4; } // edge away
       break;
     }
-    default: // balance
-      fx = (dx / dist) * baseForce * 0.85;
-      fy = (dy / dist) * baseForce * 0.85;
+    default: { // balance — moderate chaser that repositions
+      fx = (dx / dist) * baseForce * 0.8;
+      fy = (dy / dist) * baseForce * 0.8;
+    }
   }
-  fx += (Math.random() - 0.5) * 30;
-  fy += (Math.random() - 0.5) * 30;
+
+  // Wall avoidance (ALL types): a strong inward push that ramps up near the rim so the
+  // AI never rings itself out. This is what was sending Wolborg off the edge.
+  const rimStart = ARENA.r * 0.7;
+  if (distFromCenter > rimStart) {
+    const toC = distFromCenter || 1;
+    const over = (distFromCenter - rimStart) / (ARENA.r - rimStart); // 0..1+
+    const inward = 90 + over * 320; // grows hard toward the wall
+    fx += -((ai.x - ARENA.cx) / toC) * inward;
+    fy += -((ai.y - ARENA.cy) / toC) * inward;
+  }
+
+  fx += (Math.random() - 0.5) * 24;
+  fy += (Math.random() - 0.5) * 24;
   ai.vx += fx * dt;
   ai.vy += fy * dt;
 }
@@ -1540,7 +1557,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v14 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v15 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
