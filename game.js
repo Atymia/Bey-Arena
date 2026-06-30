@@ -824,7 +824,7 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
     specialTimer: bey.moves.special.charge,
     out: false, isPlayer, dashTimer: 0,
     fallY: 0, fallVel: 0, ringOutTimer: 0,
-    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0
+    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null
   };
 }
 
@@ -1113,7 +1113,7 @@ function updateBattle(dt) {
       BATTLE.spinOutPending = loser;
       BATTLE.spinOutWinner = (loser === a) ? b : a;
       BATTLE.spinOutTimer = 0;
-      BATTLE.activeSpecial = null; // cancel any in-flight special so it can't keep draining
+      a.special = null; b.special = null; // cancel any in-flight specials
     }
   }
   if (BATTLE.spinOutPending) {
@@ -1256,8 +1256,9 @@ function triggerSpecialMove(attacker, defender) {
   if (attacker.specialTimer > 0) return; // not ready
   attacker.specialTimer = attacker.bey.moves.special.cooldown; // start cooldown
   attacker.boostMultiplier = attacker.bey.moves.special.power;
-  // Start an active special effect tied to this attacker.
-  BATTLE.activeSpecial = {
+  // Start an active special effect tied to THIS attacker (per-bey, so both can run
+  // their special simultaneously without cancelling each other's glow/effect).
+  attacker.special = {
     attacker, defender,
     timeLeft: attacker.bey.moves.special.duration,
     duration: attacker.bey.moves.special.duration,
@@ -1265,12 +1266,15 @@ function triggerSpecialMove(attacker, defender) {
   };
 }
 
-// Runs every frame while a special is active: homing + guaranteed steady spin drain.
+// Runs every frame: advances each bey's own active special (homing + steady drain).
 function updateActiveSpecial(dt) {
-  const s = BATTLE.activeSpecial;
+  [BATTLE.a, BATTLE.b].forEach((f) => stepSpecial(f, dt));
+}
+function stepSpecial(attacker, dt) {
+  const s = attacker.special;
   if (!s) return;
-  const { attacker, defender } = s;
-  if (attacker.out || defender.out) { BATTLE.activeSpecial = null; return; }
+  const defender = s.defender;
+  if (attacker.out || defender.out) { attacker.special = null; return; }
 
   // Home the attacker toward the opponent so the move connects.
   const dx = defender.x - attacker.x, dy = defender.y - attacker.y;
@@ -1278,8 +1282,7 @@ function updateActiveSpecial(dt) {
   attacker.vx += (dx / dist) * 320 * dt;
   attacker.vy += (dy / dist) * 320 * dt;
 
-  // Guaranteed drain on the opponent for the whole duration. Total drain scales with
-  // the move's power and the attack/defense matchup, spread across the duration.
+  // Guaranteed drain on the opponent for the whole duration.
   const totalDrain = 0.10 * s.power * atkCombatMult(attacker.bey.stats.attack) * typeAdvantage(attacker.bey.type, defender.bey.type) / spinDefMult(defender.bey.stats.defense);
   defender.spin = Math.max(0, defender.spin - (totalDrain / s.duration) * dt);
 
@@ -1288,18 +1291,17 @@ function updateActiveSpecial(dt) {
   attacker.boostMultiplier = s.power;
 
   s.timeLeft -= dt;
-  if (s.timeLeft <= 0) BATTLE.activeSpecial = null;
+  if (s.timeLeft <= 0) attacker.special = null;
 }
 
 function renderBattle() {
   updateMeshFromFighter(meshA, BATTLE.a);
   updateMeshFromFighter(meshB, BATTLE.b);
-  // Special-move glow: lit while a bey is the active special's attacker. Smoothly fade
-  // each bey's glow toward its target so it eases in and out, like the anime activation.
-  const sp = BATTLE.activeSpecial;
+  // Special-move glow: each bey lights up while ITS OWN special is active, so both can
+  // glow at the same time. Smoothly fade each toward its target for the anime ease.
   const now = (performance.now() / 1000);
   [[meshA, BATTLE.a], [meshB, BATTLE.b]].forEach(([mesh, f]) => {
-    const target = (sp && sp.attacker === f) ? 1 : 0;
+    const target = f.special ? 1 : 0;
     if (f.glow == null) f.glow = 0;
     f.glow += (target - f.glow) * 0.18; // ease toward target
     if (f.glow < 0.001) f.glow = 0;
@@ -1650,7 +1652,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v19 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v20 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
