@@ -15,7 +15,7 @@ const BEY_ROSTER = [
     stats: { attack: 9, defense: 3, stamina: 5, speed: 9 },
     moves: {
       base: { name: 'Quick Gust', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Hurricane Fury', power: 2.2, charge: 11, cooldown: 13, duration: 0.9 }
+      special: { name: 'Hurricane Fury', power: 2.2, charge: 11, cooldown: 13, duration: 2.2 }
     }
   },
   {
@@ -28,7 +28,7 @@ const BEY_ROSTER = [
     stats: { attack: 8, defense: 4, stamina: 6, speed: 8 },
     moves: {
       base: { name: 'Flame Beak', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Blazing Phoenix Wings', power: 2.0, charge: 11, cooldown: 13, duration: 0.9 }
+      special: { name: 'Blazing Phoenix Wings', power: 2.0, charge: 11, cooldown: 13, duration: 2.2 }
     }
   },
   {
@@ -41,7 +41,7 @@ const BEY_ROSTER = [
     stats: { attack: 10, defense: 3, stamina: 4, speed: 8 },
     moves: {
       base: { name: 'Dark Claw', power: 1.4, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Black Phoenix Eclipse', power: 2.4, charge: 11, cooldown: 13, duration: 0.9 }
+      special: { name: 'Black Phoenix Eclipse', power: 2.4, charge: 11, cooldown: 13, duration: 2.2 }
     }
   },
   {
@@ -54,7 +54,7 @@ const BEY_ROSTER = [
     stats: { attack: 6, defense: 6, stamina: 6, speed: 7 },
     moves: {
       base: { name: 'Lightning Paw', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'White Tiger Roar', power: 2.0, charge: 11, cooldown: 13, duration: 0.9 }
+      special: { name: 'White Tiger Roar', power: 2.0, charge: 11, cooldown: 13, duration: 2.2 }
     }
   },
   {
@@ -67,7 +67,7 @@ const BEY_ROSTER = [
     stats: { attack: 2, defense: 10, stamina: 7, speed: 3 },
     moves: {
       base: { name: 'Iron Shell', power: 1.15, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Abyssal Wall', power: 1.8, charge: 11, cooldown: 13, duration: 0.9 }
+      special: { name: 'Abyssal Wall', power: 1.8, charge: 11, cooldown: 13, duration: 2.2 }
     }
   },
   {
@@ -80,7 +80,7 @@ const BEY_ROSTER = [
     stats: { attack: 4, defense: 6, stamina: 10, speed: 5 },
     moves: {
       base: { name: 'Glacial Bite', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Pack Blizzard', power: 2.0, charge: 11, cooldown: 13, duration: 0.9 }
+      special: { name: 'Pack Blizzard', power: 2.0, charge: 11, cooldown: 13, duration: 2.2 }
     }
   },
   {
@@ -93,7 +93,7 @@ const BEY_ROSTER = [
     stats: { attack: 6, defense: 7, stamina: 7, speed: 5 },
     moves: {
       base: { name: 'Golden Bolt', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Olympus Judgment', power: 2.3, charge: 11, cooldown: 13, duration: 0.9 }
+      special: { name: 'Olympus Judgment', power: 2.3, charge: 11, cooldown: 13, duration: 2.2 }
     }
   }
 ];

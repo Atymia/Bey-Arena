@@ -1059,8 +1059,9 @@ function updateBattle(dt) {
   const cdx = b.x - a.x, cdy = b.y - a.y;
   const cdist = Math.hypot(cdx, cdy);
   if (!a.out && !b.out && cdist < BEY_R * 2 && cdist > 0.001) {
-    if (BATTLE.spinOutPending) separateOnly(a, b, cdx, cdy, cdist); // push apart, no damage
-    else resolveCollision(a, b, cdx, cdy, cdist);
+    // During the post-KO death beat, still collide physically (real bounce) but deal
+    // no damage. Otherwise, a normal damaging collision.
+    resolveCollision(a, b, cdx, cdy, cdist, !!BATTLE.spinOutPending);
   }
 
   // HUD: spin as a percentage. Left slot ('a' ids) = player, right slot ('b') = rival.
@@ -1137,16 +1138,7 @@ function updateBattle(dt) {
   }
 }
 
-function separateOnly(a, b, dx, dy, dist) {
-  // Push the two discs apart so they never overlap, but apply NO damage or knockback
-  // impulse — used during the post-KO death beat.
-  const nx = dx / dist, ny = dy / dist;
-  const overlap = BEY_R * 2 - dist;
-  a.x -= nx * overlap * 0.5; a.y -= ny * overlap * 0.5;
-  b.x += nx * overlap * 0.5; b.y += ny * overlap * 0.5;
-}
-
-function resolveCollision(a, b, dx, dy, dist) {
+function resolveCollision(a, b, dx, dy, dist, noDamage) {
   const nx = dx / dist, ny = dy / dist;
   // Reduced-mass-style sharing based on defense (heavier/defensive beys move less).
   const massA = stat100(a.bey.stats.defense) + 40, massB = stat100(b.bey.stats.defense) + 40;
@@ -1190,6 +1182,9 @@ function resolveCollision(a, b, dx, dy, dist) {
   // keeps them touching but does NOT re-apply a hit every frame.
   if (BATTLE.impactCooldown > 0) return;
   BATTLE.impactCooldown = IMPACT_COOLDOWN;
+
+  // During the post-KO beat we still bounced physically above, but apply no damage.
+  if (noDamage) { playHitSound(); return; }
 
   // Base spin loss from closing speed, clamped to the reference range, then modulated
   // by attacker attack (boosted by an active move), defender spin-defense, and the
@@ -1652,7 +1647,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v20 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v21 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
