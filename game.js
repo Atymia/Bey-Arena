@@ -1058,7 +1058,10 @@ function updateBattle(dt) {
 
   const cdx = b.x - a.x, cdy = b.y - a.y;
   const cdist = Math.hypot(cdx, cdy);
-  if (!BATTLE.spinOutPending && !a.out && !b.out && cdist < BEY_R * 2 && cdist > 0.001) resolveCollision(a, b, cdx, cdy, cdist);
+  if (!a.out && !b.out && cdist < BEY_R * 2 && cdist > 0.001) {
+    if (BATTLE.spinOutPending) separateOnly(a, b, cdx, cdy, cdist); // push apart, no damage
+    else resolveCollision(a, b, cdx, cdy, cdist);
+  }
 
   // HUD: spin as a percentage. Left slot ('a' ids) = player, right slot ('b') = rival.
   const playerF = a.isPlayer ? a : b;
@@ -1115,12 +1118,16 @@ function updateBattle(dt) {
   }
   if (BATTLE.spinOutPending) {
     const loser = BATTLE.spinOutPending;
-    // Freeze the winner's spin so it can't also drain to 0 during the animation.
-    BATTLE.spinOutWinner.spin = Math.max(BATTLE.spinOutWinner.spin, 0.001);
+    const winner = BATTLE.spinOutWinner;
+    // The winner is LOCKED. During the death beat it keeps losing a little spin to
+    // natural decay (exhaustion) — handled by the normal decay above — but takes NO
+    // collision damage from the loser, so the outcome can never flip to a double-KO.
+    // (Collisions are already disabled while spinOutPending is set.) If the winner's
+    // own decay reaches 0 here, it still wins, because the result is already decided.
     BATTLE.spinOutTimer += dt;
     loser.vx *= 0.9; loser.vy *= 0.9; // skid to a halt
     if (BATTLE.spinOutTimer > 1.2) {
-      endBattle(BATTLE.spinOutWinner, loser, 'spinout');
+      endBattle(winner, loser, 'spinout');
     }
     return;
   }
@@ -1128,6 +1135,15 @@ function updateBattle(dt) {
     const winner = a.spin >= b.spin ? a : b;
     endBattle(winner, winner === a ? b : a, 'timeout');
   }
+}
+
+function separateOnly(a, b, dx, dy, dist) {
+  // Push the two discs apart so they never overlap, but apply NO damage or knockback
+  // impulse — used during the post-KO death beat.
+  const nx = dx / dist, ny = dy / dist;
+  const overlap = BEY_R * 2 - dist;
+  a.x -= nx * overlap * 0.5; a.y -= ny * overlap * 0.5;
+  b.x += nx * overlap * 0.5; b.y += ny * overlap * 0.5;
 }
 
 function resolveCollision(a, b, dx, dy, dist) {
@@ -1186,7 +1202,19 @@ function resolveCollision(a, b, dx, dy, dist) {
   a.spin = Math.max(0, a.spin - lossToA);
   b.spin = Math.max(0, b.spin - lossToB);
 
-  // Landing a BASE-MOVE hit (boost was active) rewards the attacker by trimming their
+  // SMASH BONUS: landing a hit WHILE your base move is active deals an extra guaranteed
+  // chunk of spin damage, mitigated far less by the opponent's defense. This rewards
+  // actually connecting with the base move and lets a skilled aggressor break a turtle.
+  // Still capped per hit, so it never one-shots — it's a game, not a coin flip.
+  const SMASH = 0.05;
+  if (a.boostTimer > 0) {
+    const bonus = Math.min(0.09, SMASH * atkCombatMult(a.bey.stats.attack) * advAtoB / (0.8 + spinDefMult(b.bey.stats.defense) * 0.45));
+    b.spin = Math.max(0, b.spin - bonus);
+  }
+  if (b.boostTimer > 0) {
+    const bonus = Math.min(0.09, SMASH * atkCombatMult(b.bey.stats.attack) * advBtoA / (0.8 + spinDefMult(a.bey.stats.defense) * 0.45));
+    a.spin = Math.max(0, a.spin - bonus);
+  }
   // special-move cooldown, so a bey that actually connects can use its special sooner.
   const SPECIAL_CD_REFUND = 1.6; // seconds shaved off the special cooldown on a base hit
   if (a.boostTimer > 0 && a.specialTimer > 0) a.specialTimer = Math.max(0, a.specialTimer - SPECIAL_CD_REFUND);
@@ -1622,7 +1650,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v18 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v19 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
