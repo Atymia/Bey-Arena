@@ -33,10 +33,13 @@ const WALL_SPIN_LOSS_MAX = 0.07;
 function stat100(v) { return v * 10; }
 // staMult: high stamina -> slower decay (1.5 at sta=0 .. 0.5 at sta=100).
 function staMult(sta) { return 1.5 - stat100(sta) / 100; }
-// atkCombatMult / defMult: 0.5 .. 1.5 ; spinDefMult ramps faster with defense.
-function atkCombatMult(atk) { return 0.5 + stat100(atk) / 100; }
+// atkCombatMult: damage scales STEEPLY with attack so a low-attack (defensive) bey
+// barely scratches (~0.3x at atk20) while a high-attack bey hits hard (~1.7x at atk100).
+// This is what makes attack types the damage dealers and defense types the tanks.
+function atkCombatMult(atk) { const a = stat100(atk) / 100; return 0.2 + a * a * 1.5; }
 function defMult(def) { return 0.5 + stat100(def) / 100; }
-function spinDefMult(def) { return 0.5 + stat100(def) / 58; }
+// spinDefMult: defenders take less spin damage, but capped so they're not invincible.
+function spinDefMult(def) { return 0.6 + stat100(def) / 75; }
 
 // Beyblade-style type triangle: attack > stamina > defense > attack. Returns a damage
 // multiplier for `attackerType` hitting `defenderType` — a soft edge (±25%) so the
@@ -824,7 +827,7 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
     specialTimer: bey.moves.special.charge,
     out: false, isPlayer, dashTimer: 0,
     fallY: 0, fallVel: 0, ringOutTimer: 0,
-    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null
+    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null, glowTimer: 0
   };
 }
 
@@ -1115,6 +1118,7 @@ function updateBattle(dt) {
       BATTLE.spinOutWinner = (loser === a) ? b : a;
       BATTLE.spinOutTimer = 0;
       a.special = null; b.special = null; // cancel any in-flight specials
+      a.glowTimer = 0; b.glowTimer = 0;
     }
   }
   if (BATTLE.spinOutPending) {
@@ -1251,6 +1255,7 @@ function triggerSpecialMove(attacker, defender) {
   if (attacker.specialTimer > 0) return; // not ready
   attacker.specialTimer = attacker.bey.moves.special.cooldown; // start cooldown
   attacker.boostMultiplier = attacker.bey.moves.special.power;
+  attacker.glowTimer = 1.6; // bit stays lit this long (visual only, independent of drain)
   // Start an active special effect tied to THIS attacker (per-bey, so both can run
   // their special simultaneously without cancelling each other's glow/effect).
   attacker.special = {
@@ -1292,11 +1297,14 @@ function stepSpecial(attacker, dt) {
 function renderBattle() {
   updateMeshFromFighter(meshA, BATTLE.a);
   updateMeshFromFighter(meshB, BATTLE.b);
-  // Special-move glow: each bey lights up while ITS OWN special is active, so both can
-  // glow at the same time. Smoothly fade each toward its target for the anime ease.
+  // Special-move glow: driven by a separate glowTimer so it stays visibly lit a bit
+  // longer than the short mechanical move. Both beys can glow at once.
   const now = (performance.now() / 1000);
+  const fdt = 1 / 60;
   [[meshA, BATTLE.a], [meshB, BATTLE.b]].forEach(([mesh, f]) => {
-    const target = f.special ? 1 : 0;
+    if (f.glowTimer == null) f.glowTimer = 0;
+    if (f.glowTimer > 0) f.glowTimer = Math.max(0, f.glowTimer - fdt);
+    const target = f.glowTimer > 0 ? 1 : 0;
     if (f.glow == null) f.glow = 0;
     f.glow += (target - f.glow) * 0.18; // ease toward target
     if (f.glow < 0.001) f.glow = 0;
@@ -1647,7 +1655,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v21 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v22 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
