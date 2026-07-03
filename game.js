@@ -827,7 +827,7 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
     specialTimer: bey.moves.special.charge,
     out: false, isPlayer, dashTimer: 0,
     fallY: 0, fallVel: 0, ringOutTimer: 0,
-    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null, glowTimer: 0
+    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null
   };
 }
 
@@ -1117,8 +1117,7 @@ function updateBattle(dt) {
       BATTLE.spinOutPending = loser;
       BATTLE.spinOutWinner = (loser === a) ? b : a;
       BATTLE.spinOutTimer = 0;
-      a.special = null; b.special = null; // cancel any in-flight specials
-      a.glowTimer = 0; b.glowTimer = 0;
+      a.special = null; b.special = null; // cancel any in-flight specials (also ends glow)
     }
   }
   if (BATTLE.spinOutPending) {
@@ -1255,7 +1254,6 @@ function triggerSpecialMove(attacker, defender) {
   if (attacker.specialTimer > 0) return; // not ready
   attacker.specialTimer = attacker.bey.moves.special.cooldown; // start cooldown
   attacker.boostMultiplier = attacker.bey.moves.special.power;
-  attacker.glowTimer = 1.6; // bit stays lit this long (visual only, independent of drain)
   // Start an active special effect tied to THIS attacker (per-bey, so both can run
   // their special simultaneously without cancelling each other's glow/effect).
   attacker.special = {
@@ -1297,16 +1295,13 @@ function stepSpecial(attacker, dt) {
 function renderBattle() {
   updateMeshFromFighter(meshA, BATTLE.a);
   updateMeshFromFighter(meshB, BATTLE.b);
-  // Special-move glow: driven by a separate glowTimer so it stays visibly lit a bit
-  // longer than the short mechanical move. Both beys can glow at once.
+  // Special-move glow: lit exactly while a bey's special move is active (both can glow
+  // at once). Eased in/out for a smooth anime activation, but ends with the move.
   const now = (performance.now() / 1000);
-  const fdt = 1 / 60;
   [[meshA, BATTLE.a], [meshB, BATTLE.b]].forEach(([mesh, f]) => {
-    if (f.glowTimer == null) f.glowTimer = 0;
-    if (f.glowTimer > 0) f.glowTimer = Math.max(0, f.glowTimer - fdt);
-    const target = f.glowTimer > 0 ? 1 : 0;
+    const target = f.special ? 1 : 0;
     if (f.glow == null) f.glow = 0;
-    f.glow += (target - f.glow) * 0.18; // ease toward target
+    f.glow += (target - f.glow) * 0.22; // ease toward target
     if (f.glow < 0.001) f.glow = 0;
     setBeyGlow(mesh, f.glow, now);
   });
@@ -1655,7 +1650,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v22 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v23 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
