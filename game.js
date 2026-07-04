@@ -827,7 +827,7 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
     specialTimer: bey.moves.special.charge,
     out: false, isPlayer, dashTimer: 0,
     fallY: 0, fallVel: 0, ringOutTimer: 0,
-    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null
+    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null, boostSource: null
   };
 }
 
@@ -1200,23 +1200,26 @@ function resolveCollision(a, b, dx, dy, dist, noDamage) {
   a.spin = Math.max(0, a.spin - lossToA);
   b.spin = Math.max(0, b.spin - lossToB);
 
-  // SMASH BONUS: landing a hit WHILE your base move is active deals an extra guaranteed
-  // chunk of spin damage, mitigated far less by the opponent's defense. This rewards
-  // actually connecting with the base move and lets a skilled aggressor break a turtle.
+  // SMASH BONUS: landing a hit WHILE your BASE move is active deals an extra guaranteed
+  // chunk of spin damage, mitigated far less by the opponent's defense. This is the
+  // skill reward — the base move is aimed and can miss, so connecting earns it. The
+  // special's boost does NOT get this (it homes automatically; no skill involved).
   // Still capped per hit, so it never one-shots — it's a game, not a coin flip.
   const SMASH = 0.05;
-  if (a.boostTimer > 0) {
+  const aBaseHit = a.boostTimer > 0 && a.boostSource === 'base';
+  const bBaseHit = b.boostTimer > 0 && b.boostSource === 'base';
+  if (aBaseHit) {
     const bonus = Math.min(0.09, SMASH * atkCombatMult(a.bey.stats.attack) * advAtoB / (0.8 + spinDefMult(b.bey.stats.defense) * 0.45));
     b.spin = Math.max(0, b.spin - bonus);
   }
-  if (b.boostTimer > 0) {
+  if (bBaseHit) {
     const bonus = Math.min(0.09, SMASH * atkCombatMult(b.bey.stats.attack) * advBtoA / (0.8 + spinDefMult(a.bey.stats.defense) * 0.45));
     a.spin = Math.max(0, a.spin - bonus);
   }
-  // special-move cooldown, so a bey that actually connects can use its special sooner.
+  // Landing a BASE hit also trims the special cooldown (skill reward, base-only).
   const SPECIAL_CD_REFUND = 1.6; // seconds shaved off the special cooldown on a base hit
-  if (a.boostTimer > 0 && a.specialTimer > 0) a.specialTimer = Math.max(0, a.specialTimer - SPECIAL_CD_REFUND);
-  if (b.boostTimer > 0 && b.specialTimer > 0) b.specialTimer = Math.max(0, b.specialTimer - SPECIAL_CD_REFUND);
+  if (aBaseHit && a.specialTimer > 0) a.specialTimer = Math.max(0, a.specialTimer - SPECIAL_CD_REFUND);
+  if (bBaseHit && b.specialTimer > 0) b.specialTimer = Math.max(0, b.specialTimer - SPECIAL_CD_REFUND);
 
   a.boostTimer = 0;
   b.boostTimer = 0;
@@ -1243,6 +1246,7 @@ function triggerBaseMove(attacker, defender) {
   attacker.vy += dirY * 230;
   attacker.boostTimer = attacker.bey.moves.base.duration;
   attacker.boostMultiplier = attacker.bey.moves.base.power;
+  attacker.boostSource = 'base'; // skill bonuses (smash, CD refund) only for base hits
   attacker.baseTimer = attacker.bey.moves.base.cooldown; // start cooldown
 }
 
@@ -1280,13 +1284,20 @@ function stepSpecial(attacker, dt) {
   attacker.vx += (dx / dist) * 320 * dt;
   attacker.vy += (dy / dist) * 320 * dt;
 
-  // Guaranteed drain on the opponent for the whole duration.
-  const totalDrain = 0.10 * s.power * atkCombatMult(attacker.bey.stats.attack) * typeAdvantage(attacker.bey.type, defender.bey.type) / spinDefMult(defender.bey.stats.defense);
+  // Guaranteed drain on the opponent for the whole duration. Since the special homes
+  // and always connects (no skill required), its damage is deliberately moderate: a
+  // smaller coefficient, a FLATTENED attack scaling (0.6+0.4*atk instead of full), and
+  // a hard cap per special. The base move — which can miss — is the big damage tool.
+  const flatAtk = 0.6 + 0.4 * atkCombatMult(attacker.bey.stats.attack);
+  let totalDrain = 0.05 * s.power * flatAtk * typeAdvantage(attacker.bey.type, defender.bey.type) / spinDefMult(defender.bey.stats.defense);
+  totalDrain = Math.min(0.14, totalDrain); // hard cap per special
   defender.spin = Math.max(0, defender.spin - (totalDrain / s.duration) * dt);
 
-  // Keep the attacker boosted (extra collision damage) for the duration too.
+  // Keep the attacker boosted (extra collision damage) for the duration too, but tag it
+  // as 'special' so the base-move skill bonuses (smash, CD refund) do NOT apply.
   attacker.boostTimer = Math.max(attacker.boostTimer, 0.05);
   attacker.boostMultiplier = s.power;
+  attacker.boostSource = 'special';
 
   s.timeLeft -= dt;
   if (s.timeLeft <= 0) attacker.special = null;
@@ -1650,7 +1661,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v23 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v24 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
