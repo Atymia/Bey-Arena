@@ -1243,6 +1243,10 @@ function resolveCollision(a, b, dx, dy, dist, noDamage) {
   const bHitWithBase = b.boostTimer > 0 && b.boostSource === 'base';
   if (aGuarded && bHitWithBase) lossToA = 0;
   if (bGuarded && aHitWithBase) lossToB = 0;
+  // The raised shell also SHOVES whoever touches it (turtle counter-push).
+  const SHELL_SHOVE = 140;
+  if (aGuarded) { b.vx += nx * SHELL_SHOVE; b.vy += ny * SHELL_SHOVE; }
+  if (bGuarded) { a.vx -= nx * SHELL_SHOVE; a.vy -= ny * SHELL_SHOVE; }
   a.spin = Math.max(0, a.spin - lossToA);
   b.spin = Math.max(0, b.spin - lossToB);
 
@@ -1304,10 +1308,13 @@ function triggerBaseMove(attacker, defender) {
     attacker.baseTimer = attacker.bey.moves.base.cooldown;
     return;
   }
-  // Draciel: raises its shell — a guard that blocks the opponent's BASE-move damage
-  // while it lasts. No dash; pure defense, true to the turtle.
+  // Draciel: raises its shell — blocks the opponent's BASE-move damage while it lasts,
+  // AND counters: contact during the guard deals normal base-hit damage plus a shove.
   if (attacker.bey.id === 'draciel') {
     attacker.guardTimer = 1.6;
+    attacker.boostTimer = 1.6;
+    attacker.boostMultiplier = attacker.bey.moves.base.power;
+    attacker.boostSource = 'base';
     attacker.baseTimer = attacker.bey.moves.base.cooldown;
     return;
   }
@@ -1348,19 +1355,27 @@ function stepSpecial(attacker, dt) {
   const defender = s.defender;
   if (attacker.out || defender.out) { attacker.special = null; return; }
 
-  // Home the attacker toward the opponent so the move connects.
   const dx = defender.x - attacker.x, dy = defender.y - attacker.y;
   const dist = Math.hypot(dx, dy) || 1;
-  attacker.vx += (dx / dist) * 320 * dt;
-  attacker.vy += (dy / dist) * 320 * dt;
+  const beyId = attacker.bey.id;
+  // Aggressive specials home in on the opponent to bring them inside the effect.
+  // Draciel doesn't chase — its tide PULLS the foe into the field instead — and
+  // Wolborg doesn't need to: its ice block forms directly on the opponent.
+  const homes = beyId !== 'draciel' && beyId !== 'wolborg';
+  if (homes) {
+    attacker.vx += (dx / dist) * 320 * dt;
+    attacker.vy += (dy / dist) * 320 * dt;
+  }
 
-  // Guaranteed drain over the duration. The special is the signature move, so it hits
-  // for a solid amount — but it uses the same clean attack/defense/type math as clashes
-  // (no runaway scaling) and is capped so it can't near one-shot. Skill still matters:
-  // landing base hits refunds the special cooldown, letting a skilled player throw more.
+  // Drain over the duration — but ONLY while the opponent is actually inside the
+  // effect's reach. No more damage-from-nowhere when the foe is far from the visuals.
+  // Wolborg is the exception: its ice block appears ON the opponent, so range is moot.
   let totalDrain = 0.09 * s.power * atkCombatMult(attacker.bey.stats.attack) * typeAdvantage(attacker.bey.type, defender.bey.type) / spinDefMult(defender.bey.stats.defense);
   totalDrain = Math.min(0.18, totalDrain); // hard cap per special
-  defender.spin = Math.max(0, defender.spin - (totalDrain / s.duration) * dt);
+  const EFFECT_RANGE = BEY_R * 6; // matches the enlarged visuals' footprint
+  if (beyId === 'wolborg' || dist < EFFECT_RANGE) {
+    defender.spin = Math.max(0, defender.spin - (totalDrain / s.duration) * dt);
+  }
 
   // Keep a MODEST collision boost during the special, tagged as 'special' so the
   // base-move skill bonuses (smash, CD refund) do NOT apply. The boost is deliberately
@@ -1379,8 +1394,8 @@ function stepSpecial(attacker, dt) {
   } else if (attacker.bey.id === 'draciel') {
     const pdx = attacker.x - defender.x, pdy = attacker.y - defender.y;
     const pd = Math.hypot(pdx, pdy) || 1;
-    defender.vx += (pdx / pd) * 60 * dt;
-    defender.vy += (pdy / pd) * 60 * dt;
+    defender.vx += (pdx / pd) * 95 * dt;
+    defender.vy += (pdy / pd) * 95 * dt;
     const damp = Math.max(0, 1 - 1.5 * dt);
     defender.vx *= damp; defender.vy *= damp;
   }
@@ -1455,6 +1470,7 @@ function zapBolt(line, x0, y0, z0, x1, y1, z1, jitter) {
 // --- Dragoon: the storm tornado ---
 function buildTornadoVfx() {
   const root = new THREE.Group(); root.visible = false;
+  root.scale.setScalar(1.4); // specials deserve to be seen
   const shells = [];
   for (let i = 0; i < 4; i++) {
     const r0 = BEY_R * (0.7 + i * 0.5), r1 = BEY_R * (1.05 + i * 0.62);
@@ -1488,6 +1504,7 @@ function buildTornadoVfx() {
 // --- Dranzer / Black Dranzer: phoenix fire storm (dark = black flames, red embers) ---
 function buildFireVfx(dark) {
   const root = new THREE.Group(); root.visible = false;
+  root.scale.setScalar(1.4);
   const shell = new THREE.Mesh(new THREE.ConeGeometry(BEY_R * 1.5, BEY_R * 3.2, 18, 1, true),
     dark ? vfxAdd(0x8f1f1a) : vfxAdd(0xff7a29));
   shell.position.y = BEY_R * 1.6;
@@ -1534,6 +1551,7 @@ function buildFireVfx(dark) {
 // --- Driger: white-tiger claw — green lightning arcs + slashing streaks ---
 function buildTigerVfx() {
   const root = new THREE.Group(); root.visible = false;
+  root.scale.setScalar(1.35);
   const bolts = [];
   for (let i = 0; i < 6; i++) { const b = makeBoltLine(0x7cff4a); root.add(b); bolts.push({ line: b, next: 0 }); }
   const slashes = [];
@@ -1567,6 +1585,7 @@ function buildTigerVfx() {
 // --- Draciel: abyssal tide — water field, ripples and droplets ---
 function buildWaterVfx() {
   const root = new THREE.Group(); root.visible = false;
+  root.scale.setScalar(1.3); // field radius ~BEY_R*6.5, matches the drain range
   const disc = new THREE.Mesh(new THREE.CircleGeometry(BEY_R * 5, 36), vfxNorm(0x2e86c1));
   disc.rotation.x = -Math.PI / 2; disc.position.y = 0.4;
   const sheen = new THREE.Mesh(new THREE.CircleGeometry(BEY_R * 4.2, 36), vfxAdd(0x7fd4ff));
@@ -1611,7 +1630,7 @@ function buildWaterVfx() {
 // --- Wolborg: pack blizzard — arena snowfall + the foe sealed in an ice block ---
 function buildIceVfx() {
   const root = new THREE.Group(); root.visible = false; // root stays at arena origin
-  const snow = makeParticles(110, 0xffffff, 6);
+  const snow = makeParticles(180, 0xffffff, 7); // blankets the whole stadium
   root.add(snow.pts);
   const blockG = new THREE.Group();
   // Faceted crystal (flat-shaded, lit) reads as real ice instead of a plain box.
@@ -1650,7 +1669,7 @@ function buildIceVfx() {
     const H = 85;
     for (let i = 0; i < snow.count; i++) {
       const sd = snow.seeds[i];
-      const rad = sd.r * ARENA.r;
+      const rad = Math.sqrt(sd.r) * ARENA.r; // uniform over the whole stadium area
       const y = H - ((t * 24 * sd.s + sd.h * H) % H);
       snow.pos[i * 3] = Math.cos(sd.a) * rad + Math.sin(t * 1.4 + sd.a * 5) * 4;
       snow.pos[i * 3 + 1] = y;
@@ -1678,6 +1697,7 @@ function buildIceVfx() {
 // --- Zeus: heaven's judgment — circling winds + lightning from the sky ---
 function buildStormVfx() {
   const root = new THREE.Group(); root.visible = false;
+  root.scale.setScalar(1.35);
   const bolts = [];
   for (let i = 0; i < 4; i++) {
     const b = makeBoltLine(i === 3 ? 0x9b6cf6 : 0xffffff);
@@ -2278,7 +2298,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v27 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v28 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
