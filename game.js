@@ -827,7 +827,7 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
     specialTimer: bey.moves.special.charge,
     out: false, isPlayer, dashTimer: 0,
     fallY: 0, fallVel: 0, ringOutTimer: 0,
-    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null, boostSource: null, guardTimer: 0, baseGlow: 0
+    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null, boostSource: null, guardTimer: 0, baseGlow: 0, shardAmmo: 0
   };
 }
 
@@ -1094,9 +1094,12 @@ function updateBattle(dt) {
         p.hit = true; p.life = Math.min(p.life, 0.04);
         if (!BATTLE.spinOutPending && target.guardTimer <= 0) {
           const ow = p.owner;
-          const dmg = Math.min(0.06, 0.055 * atkCombatMult(ow.bey.stats.attack) * typeAdvantage(ow.bey.type, target.bey.type) / spinDefMult(target.bey.stats.defense));
+          // Each shard is worth roughly a THIRD of a base hit: the full clip landed
+          // equals one solid base hit, not a multiplied volley.
+          const dmg = Math.min(0.05, 0.05 * atkCombatMult(ow.bey.stats.attack) * typeAdvantage(ow.bey.type, target.bey.type) / spinDefMult(target.bey.stats.defense));
           target.spin = Math.max(0, target.spin - dmg);
-          if (ow.specialTimer > 0) ow.specialTimer = Math.max(0, ow.specialTimer - 0.7);
+          // Refund distributed too: 3 shard hits ≈ the standard 1.6s base-hit refund.
+          if (ow.specialTimer > 0) ow.specialTimer = Math.max(0, ow.specialTimer - 0.55);
           playHitSound();
         }
       }
@@ -1293,19 +1296,19 @@ function triggerBaseMove(attacker, defender) {
   const dist = Math.hypot(dx, dy) || 1;
   const dirX = dx / dist, dirY = dy / dist;
 
-  // Wolborg: instead of dashing, hurls a fan of ice shards along the aimed direction.
-  // Same skill logic as a dash (aimed at press, can miss); different delivery.
+  // Wolborg: hurls ice shards along the aimed direction — ONE per press, three shots
+  // per clip. Between shots there's just a short gap; after the third, the full base
+  // cooldown starts like every other bey. Damage/refund are per-shard (distributed).
   if (attacker.bey.id === 'wolborg') {
-    for (let i = -1; i <= 1; i++) {
-      const sp = i * 0.14; // small spread
-      const ca = Math.cos(sp), sa = Math.sin(sp);
-      const sx = dirX * ca - dirY * sa, sy = dirX * sa + dirY * ca;
-      BATTLE.projectiles.push({
-        owner: attacker, x: attacker.x + sx * BEY_R * 1.3, y: attacker.y + sy * BEY_R * 1.3,
-        vx: sx * 430, vy: sy * 430, life: 0.9, hit: false
-      });
-    }
-    attacker.baseTimer = attacker.bey.moves.base.cooldown;
+    if (attacker.shardAmmo <= 0) attacker.shardAmmo = 3; // new clip
+    BATTLE.projectiles.push({
+      owner: attacker, x: attacker.x + dirX * BEY_R * 1.3, y: attacker.y + dirY * BEY_R * 1.3,
+      vx: dirX * 430, vy: dirY * 430, life: 0.9, hit: false
+    });
+    attacker.shardAmmo--;
+    attacker.baseTimer = attacker.shardAmmo > 0
+      ? 0.45                                  // brief gap before the next shard
+      : attacker.bey.moves.base.cooldown;     // clip spent: full cooldown
     return;
   }
   // Draciel: raises its shell — blocks the opponent's BASE-move damage while it lasts,
@@ -1502,13 +1505,55 @@ function buildTornadoVfx() {
 }
 
 // --- Dranzer / Black Dranzer: phoenix fire storm (dark = black flames, red embers) ---
+// Canvas flame texture: bright at the base, fading upward, with jagged transparent
+// notches at the top so the columns end in licking flame tongues.
+function makeFlameTexture(innerColor, outerColor) {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 128, 0, 0);
+  g.addColorStop(0, innerColor);
+  g.addColorStop(0.55, outerColor);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128);
+  ctx.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * 128, w = 6 + Math.random() * 16, h = 30 + Math.random() * 70;
+    ctx.beginPath();
+    ctx.moveTo(x, 0); ctx.lineTo(x + w / 2, h); ctx.lineTo(x + w, 0);
+    ctx.closePath(); ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
 function buildFireVfx(dark) {
   const root = new THREE.Group(); root.visible = false;
   root.scale.setScalar(1.4);
-  const shell = new THREE.Mesh(new THREE.ConeGeometry(BEY_R * 1.5, BEY_R * 3.2, 18, 1, true),
-    dark ? vfxAdd(0x8f1f1a) : vfxAdd(0xff7a29));
-  shell.position.y = BEY_R * 1.6;
-  root.add(shell);
+  // Two swirling flame columns wrapping the bey: an inner hot core and a wider outer
+  // sheath, narrower toward the top like real fire. Their textures scroll in opposite
+  // directions so the flames visibly swirl, like Dranzer's phoenix fire in the anime.
+  const texIn = makeFlameTexture(
+    dark ? 'rgba(40,16,26,0.95)' : 'rgba(255,205,95,0.95)',
+    dark ? 'rgba(12,7,12,0.85)' : 'rgba(255,105,25,0.6)');
+  const texOut = makeFlameTexture(
+    dark ? 'rgba(212,50,42,0.85)' : 'rgba(255,150,50,0.85)',
+    dark ? 'rgba(95,16,14,0.4)' : 'rgba(255,60,10,0.35)');
+  const matIn = new THREE.MeshBasicMaterial({
+    map: texIn, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+    blending: dark ? THREE.NormalBlending : THREE.AdditiveBlending
+  });
+  const matOut = new THREE.MeshBasicMaterial({
+    map: texOut, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending
+  });
+  const H_IN = BEY_R * 3.4, H_OUT = BEY_R * 2.5;
+  const colIn = new THREE.Mesh(new THREE.CylinderGeometry(BEY_R * 0.7, BEY_R * 1.45, H_IN, 20, 1, true), matIn);
+  colIn.position.y = H_IN / 2;
+  const colOut = new THREE.Mesh(new THREE.CylinderGeometry(BEY_R * 1.0, BEY_R * 1.95, H_OUT, 20, 1, true), matOut);
+  colOut.position.y = H_OUT / 2;
+  root.add(colIn); root.add(colOut);
   const flames = makeParticles(40, dark ? 0x14090f : 0xffd166, 9, dark ? false : true);
   const embers = makeParticles(24, dark ? 0xd4322a : 0xffb347, 6);
   root.add(flames.pts); root.add(embers.pts);
@@ -1523,8 +1568,17 @@ function buildFireVfx(dark) {
     if (lvl < 0.02) { root.visible = false; return; }
     root.visible = true;
     root.position.set(f.x, 0, f.y);
-    shell.rotation.y += dt * 4;
-    shell.material.opacity = (dark ? 0.42 : 0.2) * lvl * (0.85 + 0.15 * Math.sin(t * 11));
+    // Swirl: scroll the flame textures around the columns in opposite directions,
+    // counter-rotate the columns, and let the fire "breathe" (height pulse + flicker).
+    texIn.offset.x -= dt * 0.55;
+    texOut.offset.x += dt * 0.8;
+    colIn.rotation.y += dt * 1.2;
+    colOut.rotation.y -= dt * 0.9;
+    const breathe = 1 + 0.07 * Math.sin(t * 9);
+    colIn.scale.set(1, breathe, 1);
+    colOut.scale.set(1, 1 + 0.05 * Math.sin(t * 7 + 1.3), 1);
+    matIn.opacity = (dark ? 0.8 : 0.62) * lvl * (0.88 + 0.12 * Math.sin(t * 13));
+    matOut.opacity = 0.42 * lvl * (0.85 + 0.15 * Math.sin(t * 17 + 2));
     const H = BEY_R * 3.6;
     [[flames, dark ? 0.55 : 0.85], [embers, 0.9]].forEach(([pp, baseOp], gi) => {
       for (let i = 0; i < pp.count; i++) {
@@ -2298,7 +2352,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v28 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v29 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
