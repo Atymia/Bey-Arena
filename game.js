@@ -33,21 +33,21 @@ const WALL_SPIN_LOSS_MAX = 0.07;
 function stat100(v) { return v * 10; }
 // staMult: high stamina -> slower decay (1.5 at sta=0 .. 0.5 at sta=100).
 function staMult(sta) { return 1.5 - stat100(sta) / 100; }
-// atkCombatMult: damage scales STEEPLY with attack so a low-attack (defensive) bey
-// barely scratches (~0.3x at atk20) while a high-attack bey hits hard (~1.7x at atk100).
-// This is what makes attack types the damage dealers and defense types the tanks.
-function atkCombatMult(atk) { const a = stat100(atk) / 100; return 0.2 + a * a * 1.5; }
-function defMult(def) { return 0.5 + stat100(def) / 100; }
-// spinDefMult: defenders take less spin damage, but capped so they're not invincible.
-function spinDefMult(def) { return 0.6 + stat100(def) / 75; }
+// Reference-style symmetric multipliers (0.5..1.5): an ATK=100 bey exactly cancels a
+// DEF=100 bey at parity. Defense is a divisor that ramps a bit faster, but NOT so hard
+// that a defender becomes an immovable wall. The type triangle adds the rock-paper-
+// scissors flavor on top; the stats stay clean and fair.
+function atkCombatMult(atk) { return 0.5 + stat100(atk) / 100; }   // 0.5 .. 1.5
+function defMult(def) { return 0.5 + stat100(def) / 100; }          // 0.5 .. 1.5
+function spinDefMult(def) { return 0.5 + stat100(def) / 58; }       // def100 -> ~2.2
 
 // Beyblade-style type triangle: attack > stamina > defense > attack. Returns a damage
 // multiplier for `attackerType` hitting `defenderType` — a soft edge (±25%) so the
 // matchup has rock-paper-scissors flavor without making any fight unwinnable.
 const TYPE_BEATS = { attack: 'stamina', stamina: 'defense', defense: 'attack' };
 function typeAdvantage(attackerType, defenderType) {
-  if (TYPE_BEATS[attackerType] === defenderType) return 1.25;   // favorable
-  if (TYPE_BEATS[defenderType] === attackerType) return 0.8;    // unfavorable
+  if (TYPE_BEATS[attackerType] === defenderType) return 1.12;   // slight edge
+  if (TYPE_BEATS[defenderType] === attackerType) return 0.9;    // slight penalty
   return 1.0; // neutral (incl. balance vs anything, and mirror types)
 }
 
@@ -1284,17 +1284,16 @@ function stepSpecial(attacker, dt) {
   attacker.vx += (dx / dist) * 320 * dt;
   attacker.vy += (dy / dist) * 320 * dt;
 
-  // Guaranteed drain on the opponent for the whole duration. Since the special homes
-  // and always connects (no skill required), its damage is deliberately moderate: a
-  // smaller coefficient, a FLATTENED attack scaling (0.6+0.4*atk instead of full), and
-  // a hard cap per special. The base move — which can miss — is the big damage tool.
-  const flatAtk = 0.6 + 0.4 * atkCombatMult(attacker.bey.stats.attack);
-  let totalDrain = 0.05 * s.power * flatAtk * typeAdvantage(attacker.bey.type, defender.bey.type) / spinDefMult(defender.bey.stats.defense);
-  totalDrain = Math.min(0.14, totalDrain); // hard cap per special
+  // Guaranteed drain over the duration. The special is the signature move, so it hits
+  // for a solid amount — but it uses the same clean attack/defense/type math as clashes
+  // (no runaway scaling) and is capped so it can't near one-shot. Skill still matters:
+  // landing base hits refunds the special cooldown, letting a skilled player throw more.
+  let totalDrain = 0.09 * s.power * atkCombatMult(attacker.bey.stats.attack) * typeAdvantage(attacker.bey.type, defender.bey.type) / spinDefMult(defender.bey.stats.defense);
+  totalDrain = Math.min(0.18, totalDrain); // hard cap per special
   defender.spin = Math.max(0, defender.spin - (totalDrain / s.duration) * dt);
 
-  // Keep the attacker boosted (extra collision damage) for the duration too, but tag it
-  // as 'special' so the base-move skill bonuses (smash, CD refund) do NOT apply.
+  // Keep the attacker boosted (extra collision damage) for the duration too, tagged as
+  // 'special' so the base-move skill bonuses (smash, CD refund) do NOT apply.
   attacker.boostTimer = Math.max(attacker.boostTimer, 0.05);
   attacker.boostMultiplier = s.power;
   attacker.boostSource = 'special';
@@ -1661,7 +1660,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v24 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v25 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
