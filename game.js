@@ -827,7 +827,7 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
     specialTimer: bey.moves.special.charge,
     out: false, isPlayer, dashTimer: 0,
     fallY: 0, fallVel: 0, ringOutTimer: 0,
-    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null, boostSource: null
+    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null, boostSource: null, guardTimer: 0, baseGlow: 0
   };
 }
 
@@ -857,7 +857,7 @@ function initBattleState(beyA, beyB, playerIsA) {
   BATTLE = {
     a: createFighterState(beyA, -ARENA.r * 0.32, -ARENA.r * 0.18, 30, -45, playerIsA),
     b: createFighterState(beyB, ARENA.r * 0.32, ARENA.r * 0.18, -30, 45, !playerIsA),
-    elapsed: 0, ended: false, lastT: 0, rafId: 0, ringOutPending: null, spinOutPending: null, spinOutWinner: null, spinOutTimer: 0, impactCooldown: 0, launchGrace: 1.0, activeSpecial: null
+    elapsed: 0, ended: false, lastT: 0, rafId: 0, ringOutPending: null, spinOutPending: null, spinOutWinner: null, spinOutTimer: 0, impactCooldown: 0, launchGrace: 1.0, activeSpecial: null, projectiles: []
   };
   camLook.ready = false;
   if (camera3d) {
@@ -878,6 +878,13 @@ function initBattleState(beyA, beyB, playerIsA) {
     specialVfxB = buildSpecialVfx(beyB);
     scene3d.add(specialVfxA.root);
     scene3d.add(specialVfxB.root);
+    // Per-bey base-move VFX.
+    if (baseVfxA) scene3d.remove(baseVfxA.root);
+    if (baseVfxB) scene3d.remove(baseVfxB.root);
+    baseVfxA = buildBaseVfx(beyA);
+    baseVfxB = buildBaseVfx(beyB);
+    scene3d.add(baseVfxA.root);
+    scene3d.add(baseVfxB.root);
   }
   // The left HUD slot ('a' elements) always shows the PLAYER; the right ('b') the rival.
   const playerBey = playerIsA ? beyA : beyB;
@@ -1021,6 +1028,7 @@ function updateBattle(dt) {
       if (f.specialTimer > 0) f.specialTimer = Math.max(0, f.specialTimer - dt);
     }
     if (f.boostTimer > 0) f.boostTimer = Math.max(0, f.boostTimer - dt);
+    if (f.guardTimer > 0) f.guardTimer = Math.max(0, f.guardTimer - dt);
 
     const d = Math.hypot(f.x - ARENA.cx, f.y - ARENA.cy) || 0.0001;
     const nx = (f.x - ARENA.cx) / d, ny = (f.y - ARENA.cy) / d;
@@ -1072,6 +1080,30 @@ function updateBattle(dt) {
     // During the post-KO death beat, still collide physically (real bounce) but deal
     // no damage. Otherwise, a normal damaging collision.
     resolveCollision(a, b, cdx, cdy, cdist, !!BATTLE.spinOutPending);
+  }
+
+  // Ice-shard projectiles (Wolborg's base move): fly straight along the aimed line and
+  // can hit or miss, just like a dash. A hit deals base-hit-style damage + the special
+  // cooldown refund; Draciel's raised shell blocks them like any base-move damage.
+  if (BATTLE.projectiles.length) {
+    for (const p of BATTLE.projectiles) {
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.life -= dt;
+      const target = p.owner === a ? b : a;
+      if (!p.hit && !target.out && Math.hypot(p.x - target.x, p.y - target.y) < BEY_R * 1.3) {
+        p.hit = true; p.life = Math.min(p.life, 0.04);
+        if (!BATTLE.spinOutPending && target.guardTimer <= 0) {
+          const ow = p.owner;
+          const dmg = Math.min(0.06, 0.055 * atkCombatMult(ow.bey.stats.attack) * typeAdvantage(ow.bey.type, target.bey.type) / spinDefMult(target.bey.stats.defense));
+          target.spin = Math.max(0, target.spin - dmg);
+          if (ow.specialTimer > 0) ow.specialTimer = Math.max(0, ow.specialTimer - 0.7);
+          playHitSound();
+        }
+      }
+      // Fizzle on the arena wall.
+      if (Math.hypot(p.x - ARENA.cx, p.y - ARENA.cy) > ARENA.r - 4) p.life = Math.min(p.life, 0.04);
+    }
+    BATTLE.projectiles = BATTLE.projectiles.filter((p) => p.life > 0);
   }
 
   // HUD: spin as a percentage. Left slot ('a' ids) = player, right slot ('b') = rival.
@@ -1202,8 +1234,15 @@ function resolveCollision(a, b, dx, dy, dist, noDamage) {
   const baseSpinLoss = Math.min(MAX_SPIN_LOSS, Math.max(MIN_SPIN_LOSS, closing * SPIN_LOSS_SCALE));
   const advAtoB = typeAdvantage(a.bey.type, b.bey.type);
   const advBtoA = typeAdvantage(b.bey.type, a.bey.type);
-  const lossToA = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(b.bey.stats.attack) * boostB * advBtoA / spinDefMult(a.bey.stats.defense));
-  const lossToB = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(a.bey.stats.attack) * boostA * advAtoB / spinDefMult(b.bey.stats.defense));
+  let lossToA = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(b.bey.stats.attack) * boostB * advBtoA / spinDefMult(a.bey.stats.defense));
+  let lossToB = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(a.bey.stats.attack) * boostA * advAtoB / spinDefMult(b.bey.stats.defense));
+  // Raised shell (Draciel's base move): while guarding, BASE-move damage from the
+  // opponent is fully blocked — the shell eats the smash. Normal grazes still chip.
+  const aGuarded = a.guardTimer > 0, bGuarded = b.guardTimer > 0;
+  const aHitWithBase = a.boostTimer > 0 && a.boostSource === 'base';
+  const bHitWithBase = b.boostTimer > 0 && b.boostSource === 'base';
+  if (aGuarded && bHitWithBase) lossToA = 0;
+  if (bGuarded && aHitWithBase) lossToB = 0;
   a.spin = Math.max(0, a.spin - lossToA);
   b.spin = Math.max(0, b.spin - lossToB);
 
@@ -1215,11 +1254,11 @@ function resolveCollision(a, b, dx, dy, dist, noDamage) {
   const SMASH = 0.05;
   const aBaseHit = a.boostTimer > 0 && a.boostSource === 'base';
   const bBaseHit = b.boostTimer > 0 && b.boostSource === 'base';
-  if (aBaseHit) {
+  if (aBaseHit && !bGuarded) {
     const bonus = Math.min(0.09, SMASH * atkCombatMult(a.bey.stats.attack) * advAtoB / (0.8 + spinDefMult(b.bey.stats.defense) * 0.45));
     b.spin = Math.max(0, b.spin - bonus);
   }
-  if (bBaseHit) {
+  if (bBaseHit && !aGuarded) {
     const bonus = Math.min(0.09, SMASH * atkCombatMult(b.bey.stats.attack) * advBtoA / (0.8 + spinDefMult(a.bey.stats.defense) * 0.45));
     a.spin = Math.max(0, a.spin - bonus);
   }
@@ -1249,6 +1288,30 @@ function triggerBaseMove(attacker, defender) {
   const dx = defender.x - attacker.x, dy = defender.y - attacker.y;
   const dist = Math.hypot(dx, dy) || 1;
   const dirX = dx / dist, dirY = dy / dist;
+
+  // Wolborg: instead of dashing, hurls a fan of ice shards along the aimed direction.
+  // Same skill logic as a dash (aimed at press, can miss); different delivery.
+  if (attacker.bey.id === 'wolborg') {
+    for (let i = -1; i <= 1; i++) {
+      const sp = i * 0.14; // small spread
+      const ca = Math.cos(sp), sa = Math.sin(sp);
+      const sx = dirX * ca - dirY * sa, sy = dirX * sa + dirY * ca;
+      BATTLE.projectiles.push({
+        owner: attacker, x: attacker.x + sx * BEY_R * 1.3, y: attacker.y + sy * BEY_R * 1.3,
+        vx: sx * 430, vy: sy * 430, life: 0.9, hit: false
+      });
+    }
+    attacker.baseTimer = attacker.bey.moves.base.cooldown;
+    return;
+  }
+  // Draciel: raises its shell — a guard that blocks the opponent's BASE-move damage
+  // while it lasts. No dash; pure defense, true to the turtle.
+  if (attacker.bey.id === 'draciel') {
+    attacker.guardTimer = 1.6;
+    attacker.baseTimer = attacker.bey.moves.base.cooldown;
+    return;
+  }
+
   attacker.vx += dirX * 230;
   attacker.vy += dirY * 230;
   attacker.boostTimer = attacker.bey.moves.base.duration;
@@ -1299,17 +1362,19 @@ function stepSpecial(attacker, dt) {
   totalDrain = Math.min(0.18, totalDrain); // hard cap per special
   defender.spin = Math.max(0, defender.spin - (totalDrain / s.duration) * dt);
 
-  // Keep the attacker boosted (extra collision damage) for the duration too, tagged as
-  // 'special' so the base-move skill bonuses (smash, CD refund) do NOT apply.
+  // Keep a MODEST collision boost during the special, tagged as 'special' so the
+  // base-move skill bonuses (smash, CD refund) do NOT apply. The boost is deliberately
+  // small: the special now lasts longer for spectacle, and a full-power boost for the
+  // whole window would inflate damage — the drain above is already duration-neutral.
   attacker.boostTimer = Math.max(attacker.boostTimer, 0.05);
-  attacker.boostMultiplier = s.power;
+  attacker.boostMultiplier = 1.15;
   attacker.boostSource = 'special';
 
   // Signature twists matching the VFX: Wolborg's blizzard seals the foe in ice
-  // (velocity rapidly frozen); Draciel's tide pulls the foe in and slows it, like the
+  // (velocity heavily damped); Draciel's tide pulls the foe in and slows it, like the
   // reference project's Libra sand field.
   if (attacker.bey.id === 'wolborg') {
-    const damp = Math.max(0, 1 - 6 * dt);
+    const damp = Math.max(0, 1 - 3.5 * dt);
     defender.vx *= damp; defender.vy *= damp;
   } else if (attacker.bey.id === 'draciel') {
     const pdx = attacker.x - defender.x, pdy = attacker.y - defender.y;
@@ -1332,6 +1397,7 @@ function stepSpecial(attacker, dt) {
 // everything here is presentation only.
 // ---------------------------------------------------------------
 let specialVfxA = null, specialVfxB = null;
+let baseVfxA = null, baseVfxB = null;
 let vfxLastT = 0;
 
 function vfxAdd(color) {
@@ -1548,12 +1614,33 @@ function buildIceVfx() {
   const snow = makeParticles(110, 0xffffff, 6);
   root.add(snow.pts);
   const blockG = new THREE.Group();
-  const box = new THREE.Mesh(new THREE.BoxGeometry(BEY_R * 2.7, BEY_R * 2.3, BEY_R * 2.7), vfxNorm(0xbfe8ff));
-  box.position.y = BEY_R * 1.15;
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box.geometry),
-    new THREE.LineBasicMaterial({ color: 0xe8faff, transparent: true, opacity: 0 }));
-  edges.position.y = box.position.y;
-  blockG.add(box); blockG.add(edges);
+  // Faceted crystal (flat-shaded, lit) reads as real ice instead of a plain box.
+  const iceMat = new THREE.MeshStandardMaterial({
+    color: 0xcfeaff, transparent: true, opacity: 0, roughness: 0.12, metalness: 0.05,
+    emissive: 0x9fd8ff, emissiveIntensity: 0.35, flatShading: true
+  });
+  const crystal = new THREE.Mesh(new THREE.IcosahedronGeometry(BEY_R * 1.85, 0), iceMat);
+  crystal.scale.set(1, 1.25, 1);
+  crystal.position.y = BEY_R * 1.35;
+  blockG.add(crystal);
+  // Jutting shards around the base for the "erupted from the ground" look.
+  const shardMat = iceMat.clone();
+  for (let i = 0; i < 4; i++) {
+    const sh = new THREE.Mesh(new THREE.ConeGeometry(BEY_R * 0.4, BEY_R * (1.1 + (i % 2) * 0.5), 5), shardMat);
+    const a = (i / 4) * Math.PI * 2 + 0.5;
+    sh.position.set(Math.cos(a) * BEY_R * 1.3, BEY_R * 0.45, Math.sin(a) * BEY_R * 1.3);
+    sh.rotation.z = Math.cos(a) * 0.45;
+    sh.rotation.x = -Math.sin(a) * 0.45;
+    blockG.add(sh);
+  }
+  // Bright frozen edges + a faint inner frost mist.
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(crystal.geometry),
+    new THREE.LineBasicMaterial({ color: 0xf2fbff, transparent: true, opacity: 0 }));
+  edges.scale.copy(crystal.scale);
+  edges.position.copy(crystal.position);
+  blockG.add(edges);
+  const frost = makeParticles(8, 0xffffff, 7);
+  blockG.add(frost.pts);
   root.add(blockG);
   return { root, update(f, opp, t, dt) {
     const lvl = f.glow;
@@ -1572,8 +1659,19 @@ function buildIceVfx() {
     snow.pts.geometry.attributes.position.needsUpdate = true;
     snow.mat.opacity = 0.85 * lvl;
     blockG.position.set(opp.x, 0, opp.y);
-    box.material.opacity = 0.36 * lvl * (0.9 + 0.1 * Math.sin(t * 6));
-    edges.material.opacity = 0.7 * lvl;
+    const shimmer = 0.9 + 0.1 * Math.sin(t * 6);
+    iceMat.opacity = 0.55 * lvl * shimmer;
+    shardMat.opacity = 0.5 * lvl * shimmer;
+    edges.material.opacity = 0.75 * lvl;
+    crystal.rotation.y = Math.sin(t * 0.7) * 0.08; // barely-perceptible sway
+    for (let i = 0; i < frost.count; i++) {
+      const sd = frost.seeds[i];
+      frost.pos[i * 3] = Math.cos(sd.a + t * 0.8) * BEY_R * sd.r * 1.2;
+      frost.pos[i * 3 + 1] = BEY_R * (0.8 + sd.h * 1.4);
+      frost.pos[i * 3 + 2] = Math.sin(sd.a + t * 0.8) * BEY_R * sd.r * 1.2;
+    }
+    frost.pts.geometry.attributes.position.needsUpdate = true;
+    frost.mat.opacity = 0.5 * lvl;
   } };
 }
 
@@ -1629,6 +1727,171 @@ function buildStormVfx() {
   } };
 }
 
+// ---------------------------------------------------------------
+// Base-move VFX: quick effects that wrap the bey while its base move is active
+// (envelope = f.baseGlow, eased like the special glow). Wolborg's is different: it
+// renders the ice-shard projectiles; Draciel's shows the shell guard dome.
+// ---------------------------------------------------------------
+
+// Dragoon: storm-wind wrap — swirling pale-blue arcs (anime storm attack).
+function buildWindWrapVfx() {
+  const root = new THREE.Group(); root.visible = false;
+  const arcs = [];
+  for (let i = 0; i < 3; i++) {
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(BEY_R * (1.25 + i * 0.28), 0.9, 6, 32, Math.PI * 1.1), vfxAdd(0xcfe4ff));
+    arc.rotation.x = -Math.PI / 2;
+    arc.position.y = 7 + i * 7;
+    root.add(arc); arcs.push(arc);
+  }
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.baseGlow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    arcs.forEach((a, i) => {
+      a.rotation.z = t * (11 + i * 2) * (i % 2 ? -1 : 1);
+      a.material.opacity = 0.3 * lvl;
+    });
+  } };
+}
+
+// Dranzer / Black Dranzer: the bey wrapped in flame (dark smoke + red embers for BD).
+function buildFlameWrapVfx(dark) {
+  const root = new THREE.Group(); root.visible = false;
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(BEY_R * 1.35, 18, 14), dark ? vfxNorm(0x14090f) : vfxAdd(0xff8a2a));
+  shell.position.y = 15;
+  shell.scale.set(1, 0.85, 1);
+  root.add(shell);
+  const embers = makeParticles(16, dark ? 0xd4322a : 0xffd166, 6);
+  root.add(embers.pts);
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.baseGlow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    shell.rotation.y += dt * 6;
+    shell.material.opacity = (dark ? 0.5 : 0.3) * lvl * (0.85 + 0.15 * Math.sin(t * 14));
+    const H = BEY_R * 2.6;
+    for (let i = 0; i < embers.count; i++) {
+      const sd = embers.seeds[i];
+      const y = (t * 30 * sd.s + sd.h * H) % H;
+      const rad = BEY_R * (1.25 - (y / H) * 0.5);
+      const a = sd.a + t * 3 * sd.s;
+      embers.pos[i * 3] = Math.cos(a) * rad;
+      embers.pos[i * 3 + 1] = y + 4;
+      embers.pos[i * 3 + 2] = Math.sin(a) * rad;
+    }
+    embers.pts.geometry.attributes.position.needsUpdate = true;
+    embers.mat.opacity = 0.85 * lvl;
+  } };
+}
+
+// Driger: green lightning crackling around the body during the tiger dash.
+function buildCrackleVfx() {
+  const root = new THREE.Group(); root.visible = false;
+  const bolts = [];
+  for (let i = 0; i < 4; i++) { const b = makeBoltLine(0x7cff4a); root.add(b); bolts.push({ line: b, next: 0 }); }
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.baseGlow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    bolts.forEach((b, i) => {
+      if (t > b.next) {
+        const a0 = Math.random() * Math.PI * 2;
+        const a1 = a0 + (Math.random() - 0.5) * 2.2;
+        const r = BEY_R * 1.3;
+        zapBolt(b.line,
+          Math.cos(a0) * r, 5 + Math.random() * 16, Math.sin(a0) * r,
+          Math.cos(a1) * r, 5 + Math.random() * 16, Math.sin(a1) * r, 5);
+        b.next = t + 0.05 + Math.random() * 0.05;
+      }
+      b.line.material.opacity = lvl * (0.4 + 0.6 * Math.abs(Math.sin(t * 34 + i * 2)));
+    });
+  } };
+}
+
+// Draciel: the raised turtle shell — a segmented green dome facing the opponent.
+function buildShellGuardVfx() {
+  const root = new THREE.Group(); root.visible = false;
+  // Half-dome opening toward +Z (phiStart 0, phiLength PI covers the z>0 side).
+  const geo = new THREE.SphereGeometry(BEY_R * 2.0, 18, 10, 0, Math.PI, Math.PI * 0.16, Math.PI * 0.55);
+  const dome = new THREE.Mesh(geo, vfxNorm(0x3a9d4e));
+  const wire = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xb8e6a0, wireframe: true, transparent: true, opacity: 0, depthWrite: false }));
+  root.add(dome); root.add(wire);
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.baseGlow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    // Aim the dome at the opponent (rotate +Z toward them).
+    root.rotation.y = Math.atan2(opp.x - f.x, opp.y - f.y);
+    dome.material.opacity = 0.28 * lvl * (0.9 + 0.1 * Math.sin(t * 5));
+    wire.material.opacity = 0.55 * lvl;
+  } };
+}
+
+// Wolborg: renders the flying ice shards (the projectiles launched by its base move).
+const _shardUp = new THREE.Vector3(0, 1, 0);
+const _shardDir = new THREE.Vector3();
+function buildShardsVfx() {
+  const root = new THREE.Group(); root.visible = false;
+  const mat = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+  const shards = [];
+  for (let i = 0; i < 3; i++) {
+    const m = new THREE.Mesh(new THREE.ConeGeometry(2.4, 11, 6), mat);
+    m.visible = false;
+    root.add(m); shards.push(m);
+  }
+  return { root, update(f, opp, t, dt) {
+    const ps = (BATTLE && BATTLE.projectiles) ? BATTLE.projectiles.filter((p) => p.owner === f) : [];
+    if (!ps.length) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(0, 0, 0);
+    shards.forEach((m, i) => {
+      const p = ps[i];
+      if (!p) { m.visible = false; return; }
+      m.visible = true;
+      m.position.set(p.x, 9, p.y);
+      _shardDir.set(p.vx, 0, p.vy).normalize();
+      m.quaternion.setFromUnitVectors(_shardUp, _shardDir); // tip points along flight
+    });
+  } };
+}
+
+// Zeus: shrouded in dark energy while it strikes.
+function buildDarkAuraVfx() {
+  const root = new THREE.Group(); root.visible = false;
+  const aura = new THREE.Mesh(new THREE.SphereGeometry(BEY_R * 1.45, 18, 14), vfxNorm(0x120018));
+  aura.position.y = 15; aura.scale.set(1, 0.8, 1);
+  const rim = new THREE.Mesh(new THREE.SphereGeometry(BEY_R * 1.6, 18, 14), vfxAdd(0x9b5cf6));
+  rim.position.y = 15; rim.scale.set(1, 0.8, 1);
+  root.add(aura); root.add(rim);
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.baseGlow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    aura.material.opacity = 0.45 * lvl * (0.85 + 0.15 * Math.sin(t * 9));
+    rim.material.opacity = 0.16 * lvl * (0.8 + 0.2 * Math.sin(t * 12 + 1));
+    const s = 1 + 0.06 * Math.sin(t * 10);
+    rim.scale.set(s, 0.8 * s, s);
+  } };
+}
+
+function buildBaseVfx(bey) {
+  switch (bey.id) {
+    case 'dragoon': return buildWindWrapVfx();
+    case 'dranzer': return buildFlameWrapVfx(false);
+    case 'blackdranzer': return buildFlameWrapVfx(true);
+    case 'driger': return buildCrackleVfx();
+    case 'draciel': return buildShellGuardVfx();
+    case 'wolborg': return buildShardsVfx();
+    case 'zeus': return buildDarkAuraVfx();
+    default: return buildWindWrapVfx();
+  }
+}
+
 function buildSpecialVfx(bey) {
   switch (bey.id) {
     case 'dragoon': return buildTornadoVfx();
@@ -1660,6 +1923,16 @@ function renderBattle() {
   vfxLastT = now;
   if (specialVfxA) specialVfxA.update(BATTLE.a, BATTLE.b, now, vdt);
   if (specialVfxB) specialVfxB.update(BATTLE.b, BATTLE.a, now, vdt);
+  // Base-move VFX envelope: lit while the base boost is active (or, for Draciel, while
+  // its shell guard is up). Wolborg's shard VFX reads the projectiles directly.
+  [BATTLE.a, BATTLE.b].forEach((f) => {
+    const active = (f.boostTimer > 0 && f.boostSource === 'base') || f.guardTimer > 0;
+    if (f.baseGlow == null) f.baseGlow = 0;
+    f.baseGlow += ((active ? 1 : 0) - f.baseGlow) * 0.3;
+    if (f.baseGlow < 0.001) f.baseGlow = 0;
+  });
+  if (baseVfxA) baseVfxA.update(BATTLE.a, BATTLE.b, now, vdt);
+  if (baseVfxB) baseVfxB.update(BATTLE.b, BATTLE.a, now, vdt);
   updateCamera();
   if (renderer3d) renderer3d.render(scene3d, camera3d);
 }
@@ -2005,7 +2278,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v26 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v27 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
