@@ -871,6 +871,13 @@ function initBattleState(beyA, beyB, playerIsA) {
     meshB = buildBeyMesh(beyB);
     scene3d.add(meshA);
     scene3d.add(meshB);
+    // Per-bey special-move VFX (rebuilt fresh so they match the fighting beys).
+    if (specialVfxA) scene3d.remove(specialVfxA.root);
+    if (specialVfxB) scene3d.remove(specialVfxB.root);
+    specialVfxA = buildSpecialVfx(beyA);
+    specialVfxB = buildSpecialVfx(beyB);
+    scene3d.add(specialVfxA.root);
+    scene3d.add(specialVfxB.root);
   }
   // The left HUD slot ('a' elements) always shows the PLAYER; the right ('b') the rival.
   const playerBey = playerIsA ? beyA : beyB;
@@ -1298,8 +1305,341 @@ function stepSpecial(attacker, dt) {
   attacker.boostMultiplier = s.power;
   attacker.boostSource = 'special';
 
+  // Signature twists matching the VFX: Wolborg's blizzard seals the foe in ice
+  // (velocity rapidly frozen); Draciel's tide pulls the foe in and slows it, like the
+  // reference project's Libra sand field.
+  if (attacker.bey.id === 'wolborg') {
+    const damp = Math.max(0, 1 - 6 * dt);
+    defender.vx *= damp; defender.vy *= damp;
+  } else if (attacker.bey.id === 'draciel') {
+    const pdx = attacker.x - defender.x, pdy = attacker.y - defender.y;
+    const pd = Math.hypot(pdx, pdy) || 1;
+    defender.vx += (pdx / pd) * 60 * dt;
+    defender.vy += (pdy / pd) * 60 * dt;
+    const damp = Math.max(0, 1 - 1.5 * dt);
+    defender.vx *= damp; defender.vy *= damp;
+  }
+
   s.timeLeft -= dt;
   if (s.timeLeft <= 0) attacker.special = null;
+}
+
+// ---------------------------------------------------------------
+// Per-bey special-move VFX (anime-inspired). Architecture follows the reference
+// project: each effect is built ONCE per battle (hidden), and an update() runs every
+// frame reading the fighter's eased glow level as its intensity envelope — so effects
+// fade in/out exactly with the special move. Damage/logic stays in stepSpecial;
+// everything here is presentation only.
+// ---------------------------------------------------------------
+let specialVfxA = null, specialVfxB = null;
+let vfxLastT = 0;
+
+function vfxAdd(color) {
+  return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+}
+function vfxNorm(color) {
+  return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+}
+let _softTex = null;
+function softTex() {
+  if (_softTex) return _softTex;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+  _softTex = new THREE.CanvasTexture(c);
+  return _softTex;
+}
+function makeParticles(count, color, size, additive) {
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({
+    color, size, map: softTex(), transparent: true, opacity: 0,
+    blending: additive === false ? THREE.NormalBlending : THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  const pts = new THREE.Points(geo, mat);
+  const seeds = [];
+  for (let i = 0; i < count; i++) seeds.push({ a: Math.random() * Math.PI * 2, r: Math.random(), h: Math.random(), s: 0.5 + Math.random() });
+  return { pts, mat, pos, seeds, count };
+}
+function makeBoltLine(color) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(8 * 3), 3));
+  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+  return new THREE.Line(geo, mat);
+}
+function zapBolt(line, x0, y0, z0, x1, y1, z1, jitter) {
+  const p = line.geometry.attributes.position;
+  const n = p.count;
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const j = (i > 0 && i < n - 1) ? 1 : 0;
+    p.setXYZ(i,
+      x0 + (x1 - x0) * t + j * (Math.random() - 0.5) * jitter,
+      y0 + (y1 - y0) * t + j * (Math.random() - 0.5) * jitter * 0.4,
+      z0 + (z1 - z0) * t + j * (Math.random() - 0.5) * jitter);
+  }
+  p.needsUpdate = true;
+}
+
+// --- Dragoon: the storm tornado ---
+function buildTornadoVfx() {
+  const root = new THREE.Group(); root.visible = false;
+  const shells = [];
+  for (let i = 0; i < 4; i++) {
+    const r0 = BEY_R * (0.7 + i * 0.5), r1 = BEY_R * (1.05 + i * 0.62);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, 15 + i * 14, 20, 1, true), vfxAdd(0xcfe4ff));
+    m.position.y = 8 + i * 13;
+    root.add(m); shells.push(m);
+  }
+  const p = makeParticles(26, 0xe8f2ff, 7);
+  root.add(p.pts);
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.glow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    shells.forEach((s, i) => { s.rotation.y += dt * (7 - i * 1.2); s.material.opacity = 0.13 * lvl; });
+    const H = 62;
+    for (let i = 0; i < p.count; i++) {
+      const sd = p.seeds[i];
+      const y = (t * 30 * sd.s + sd.h * H) % H;
+      const rad = BEY_R * (0.8 + (y / H) * 2.3);
+      const a = sd.a + t * 5 * sd.s + y * 0.09;
+      p.pos[i * 3] = Math.cos(a) * rad;
+      p.pos[i * 3 + 1] = y + 3;
+      p.pos[i * 3 + 2] = Math.sin(a) * rad;
+    }
+    p.pts.geometry.attributes.position.needsUpdate = true;
+    p.mat.opacity = 0.8 * lvl;
+  } };
+}
+
+// --- Dranzer / Black Dranzer: phoenix fire storm (dark = black flames, red embers) ---
+function buildFireVfx(dark) {
+  const root = new THREE.Group(); root.visible = false;
+  const shell = new THREE.Mesh(new THREE.ConeGeometry(BEY_R * 1.5, BEY_R * 3.2, 18, 1, true),
+    dark ? vfxAdd(0x8f1f1a) : vfxAdd(0xff7a29));
+  shell.position.y = BEY_R * 1.6;
+  root.add(shell);
+  const flames = makeParticles(40, dark ? 0x14090f : 0xffd166, 9, dark ? false : true);
+  const embers = makeParticles(24, dark ? 0xd4322a : 0xffb347, 6);
+  root.add(flames.pts); root.add(embers.pts);
+  const rings = [];
+  for (let i = 0; i < 2; i++) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(BEY_R * 0.9, BEY_R * 1.25, 26), vfxAdd(dark ? 0xd4322a : 0xff9a3d));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.6;
+    root.add(ring); rings.push(ring);
+  }
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.glow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    shell.rotation.y += dt * 4;
+    shell.material.opacity = (dark ? 0.42 : 0.2) * lvl * (0.85 + 0.15 * Math.sin(t * 11));
+    const H = BEY_R * 3.6;
+    [[flames, dark ? 0.55 : 0.85], [embers, 0.9]].forEach(([pp, baseOp], gi) => {
+      for (let i = 0; i < pp.count; i++) {
+        const sd = pp.seeds[i];
+        const y = (t * (26 + gi * 16) * sd.s + sd.h * H) % H;
+        const rad = BEY_R * (1.35 - (y / H) * 0.85) * (0.55 + 0.45 * sd.r);
+        const a = sd.a + t * 2.4 * sd.s;
+        pp.pos[i * 3] = Math.cos(a) * rad;
+        pp.pos[i * 3 + 1] = y + 2;
+        pp.pos[i * 3 + 2] = Math.sin(a) * rad;
+      }
+      pp.pts.geometry.attributes.position.needsUpdate = true;
+      pp.mat.opacity = baseOp * lvl;
+    });
+    rings.forEach((ring, i) => {
+      const ph = (t * 0.7 + i * 0.5) % 1;
+      const sc = 1 + ph * 2.4;
+      ring.scale.set(sc, sc, 1);
+      ring.material.opacity = 0.5 * lvl * (1 - ph);
+    });
+  } };
+}
+
+// --- Driger: white-tiger claw — green lightning arcs + slashing streaks ---
+function buildTigerVfx() {
+  const root = new THREE.Group(); root.visible = false;
+  const bolts = [];
+  for (let i = 0; i < 6; i++) { const b = makeBoltLine(0x7cff4a); root.add(b); bolts.push({ line: b, next: 0 }); }
+  const slashes = [];
+  for (let i = 0; i < 3; i++) {
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(BEY_R * 3.6, 2.4), vfxAdd(0xb8ff7a));
+    s.position.y = 9 + i * 5;
+    root.add(s); slashes.push(s);
+  }
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.glow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    bolts.forEach((b, i) => {
+      if (t > b.next) {
+        const a = Math.random() * Math.PI * 2;
+        const r = BEY_R * (2 + Math.random() * 2.2);
+        zapBolt(b.line, 0, 20, 0, Math.cos(a) * r, 1.2, Math.sin(a) * r, 6);
+        b.next = t + 0.06 + Math.random() * 0.06;
+      }
+      b.line.material.opacity = lvl * (0.45 + 0.55 * Math.abs(Math.sin(t * 30 + i * 2)));
+    });
+    slashes.forEach((s, i) => {
+      s.rotation.y = t * (9 + i * 1.6) + i * 2.1;
+      s.rotation.x = 0.15 * Math.sin(t * 5 + i);
+      s.material.opacity = 0.32 * lvl * (0.7 + 0.3 * Math.sin(t * 13 + i * 2));
+    });
+  } };
+}
+
+// --- Draciel: abyssal tide — water field, ripples and droplets ---
+function buildWaterVfx() {
+  const root = new THREE.Group(); root.visible = false;
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(BEY_R * 5, 36), vfxNorm(0x2e86c1));
+  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.4;
+  const sheen = new THREE.Mesh(new THREE.CircleGeometry(BEY_R * 4.2, 36), vfxAdd(0x7fd4ff));
+  sheen.rotation.x = -Math.PI / 2; sheen.position.y = 0.55;
+  root.add(disc); root.add(sheen);
+  const ripples = [];
+  for (let i = 0; i < 3; i++) {
+    const r = new THREE.Mesh(new THREE.RingGeometry(BEY_R * 1.1, BEY_R * 1.35, 30), vfxAdd(0xa8e6ff));
+    r.rotation.x = -Math.PI / 2; r.position.y = 0.7;
+    root.add(r); ripples.push(r);
+  }
+  const drops = makeParticles(22, 0xbfe8ff, 6);
+  root.add(drops.pts);
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.glow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    disc.rotation.z += dt * 0.6;
+    sheen.rotation.z -= dt * 0.9;
+    disc.material.opacity = 0.24 * lvl;
+    sheen.material.opacity = 0.12 * lvl * (0.8 + 0.2 * Math.sin(t * 3));
+    ripples.forEach((r, i) => {
+      const ph = (t * 0.55 + i / 3) % 1;
+      const sc = 0.6 + ph * 3.2;
+      r.scale.set(sc, sc, 1);
+      r.material.opacity = 0.45 * lvl * (1 - ph);
+    });
+    for (let i = 0; i < drops.count; i++) {
+      const sd = drops.seeds[i];
+      const rad = BEY_R * (1 + sd.r * 3.4);
+      const hop = Math.abs(Math.sin(t * 2.6 * sd.s + sd.a * 3));
+      drops.pos[i * 3] = Math.cos(sd.a) * rad;
+      drops.pos[i * 3 + 1] = 1 + hop * 7;
+      drops.pos[i * 3 + 2] = Math.sin(sd.a) * rad;
+    }
+    drops.pts.geometry.attributes.position.needsUpdate = true;
+    drops.mat.opacity = 0.7 * lvl;
+  } };
+}
+
+// --- Wolborg: pack blizzard — arena snowfall + the foe sealed in an ice block ---
+function buildIceVfx() {
+  const root = new THREE.Group(); root.visible = false; // root stays at arena origin
+  const snow = makeParticles(110, 0xffffff, 6);
+  root.add(snow.pts);
+  const blockG = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(BEY_R * 2.7, BEY_R * 2.3, BEY_R * 2.7), vfxNorm(0xbfe8ff));
+  box.position.y = BEY_R * 1.15;
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box.geometry),
+    new THREE.LineBasicMaterial({ color: 0xe8faff, transparent: true, opacity: 0 }));
+  edges.position.y = box.position.y;
+  blockG.add(box); blockG.add(edges);
+  root.add(blockG);
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.glow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(0, 0, 0);
+    const H = 85;
+    for (let i = 0; i < snow.count; i++) {
+      const sd = snow.seeds[i];
+      const rad = sd.r * ARENA.r;
+      const y = H - ((t * 24 * sd.s + sd.h * H) % H);
+      snow.pos[i * 3] = Math.cos(sd.a) * rad + Math.sin(t * 1.4 + sd.a * 5) * 4;
+      snow.pos[i * 3 + 1] = y;
+      snow.pos[i * 3 + 2] = Math.sin(sd.a) * rad;
+    }
+    snow.pts.geometry.attributes.position.needsUpdate = true;
+    snow.mat.opacity = 0.85 * lvl;
+    blockG.position.set(opp.x, 0, opp.y);
+    box.material.opacity = 0.36 * lvl * (0.9 + 0.1 * Math.sin(t * 6));
+    edges.material.opacity = 0.7 * lvl;
+  } };
+}
+
+// --- Zeus: heaven's judgment — circling winds + lightning from the sky ---
+function buildStormVfx() {
+  const root = new THREE.Group(); root.visible = false;
+  const bolts = [];
+  for (let i = 0; i < 4; i++) {
+    const b = makeBoltLine(i === 3 ? 0x9b6cf6 : 0xffffff);
+    root.add(b); bolts.push({ line: b, next: 0, ex: 0, ez: 0 });
+  }
+  const strikes = [];
+  for (let i = 0; i < 2; i++) {
+    const r = new THREE.Mesh(new THREE.RingGeometry(2.5, 4.5, 22), vfxAdd(0xe8e2ff));
+    r.rotation.x = -Math.PI / 2; r.position.y = 0.6;
+    root.add(r); strikes.push({ mesh: r, ph: 1 });
+  }
+  const winds = [];
+  for (let i = 0; i < 3; i++) {
+    const w = new THREE.Mesh(new THREE.TorusGeometry(BEY_R * (1.8 + i * 0.55), 0.8, 8, 40, Math.PI * 0.95), vfxAdd(0xd9e2ec));
+    w.rotation.x = -Math.PI / 2;
+    w.position.y = 6 + i * 6;
+    root.add(w); winds.push(w);
+  }
+  return { root, update(f, opp, t, dt) {
+    const lvl = f.glow;
+    if (lvl < 0.02) { root.visible = false; return; }
+    root.visible = true;
+    root.position.set(f.x, 0, f.y);
+    bolts.forEach((b, i) => {
+      if (t > b.next) {
+        const a = Math.random() * Math.PI * 2;
+        const r = BEY_R * (1 + Math.random() * 3);
+        b.ex = Math.cos(a) * r; b.ez = Math.sin(a) * r;
+        zapBolt(b.line, b.ex * 0.3, 68, b.ez * 0.3, b.ex, 1, b.ez, 8);
+        b.next = t + 0.09 + Math.random() * 0.12;
+        const st = strikes[i % strikes.length];
+        st.mesh.position.set(b.ex, 0.6, b.ez);
+        st.ph = 0;
+      }
+      b.line.material.opacity = lvl * (0.3 + 0.7 * Math.abs(Math.sin(t * 36 + i * 1.7)));
+    });
+    strikes.forEach((st) => {
+      st.ph = Math.min(1, st.ph + dt * 2.6);
+      const sc = 0.5 + st.ph * 2;
+      st.mesh.scale.set(sc, sc, 1);
+      st.mesh.material.opacity = 0.6 * lvl * (1 - st.ph);
+    });
+    winds.forEach((w, i) => {
+      w.rotation.z = t * (5 + i * 1.3) * (i % 2 ? -1 : 1);
+      w.material.opacity = 0.16 * lvl;
+    });
+  } };
+}
+
+function buildSpecialVfx(bey) {
+  switch (bey.id) {
+    case 'dragoon': return buildTornadoVfx();
+    case 'dranzer': return buildFireVfx(false);
+    case 'blackdranzer': return buildFireVfx(true);
+    case 'driger': return buildTigerVfx();
+    case 'draciel': return buildWaterVfx();
+    case 'wolborg': return buildIceVfx();
+    case 'zeus': return buildStormVfx();
+    default: return buildTornadoVfx();
+  }
 }
 
 function renderBattle() {
@@ -1315,6 +1655,11 @@ function renderBattle() {
     if (f.glow < 0.001) f.glow = 0;
     setBeyGlow(mesh, f.glow, now);
   });
+  // Per-bey special VFX, driven by the same eased glow envelope.
+  const vdt = vfxLastT ? Math.min(0.05, now - vfxLastT) : 1 / 60;
+  vfxLastT = now;
+  if (specialVfxA) specialVfxA.update(BATTLE.a, BATTLE.b, now, vdt);
+  if (specialVfxB) specialVfxB.update(BATTLE.b, BATTLE.a, now, vdt);
   updateCamera();
   if (renderer3d) renderer3d.render(scene3d, camera3d);
 }
@@ -1660,7 +2005,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v25 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = 'v26 · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));
