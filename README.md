@@ -75,17 +75,17 @@
 
 ## Screenshots
 
-### 🖥️ Main Menu
+### Main Menu
 <p align="center">
   <img src="menu.png" alt="Main menu" height="280">
 </p>
 
-### 🌀 Spinner Selection
+### Spinner Selection
 <p align="center">
   <img src="select.png" alt="Spinner selection" height="280">
 </p>
 
-### ⚔️ Arena Battle
+### Arena Battle
 <p align="center">
   <img src="fight.png" alt="Battle in the arena" height="280">
 </p>
