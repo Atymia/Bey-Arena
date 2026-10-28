@@ -78,18 +78,18 @@
 <table align="center">
   <tr>
     <td align="center" colspan="2">
-      <b>Arena Battle</b><br>
-      <img src="fight.png" alt="Battle in the arena" width="95%">
+      <b>Main Menu</b><br>
+      <img src="menu.png" alt="Main menu" width="90%">
     </td>
   </tr>
   <tr>
     <td align="center" width="50%" valign="top">
-      <b>Main Menu</b><br>
-      <img src="menu.png" alt="Main menu" width="90%">
-    </td>
-    <td align="center" width="50%" valign="top">
       <b>Spinner Selection</b><br>
       <img src="select.png" alt="Spinner selection" width="90%">
+    </td>
+    <td align="center" width="50%" valign="top">
+      <b>Arena Battle</b><br>
+      <img src="fight.png" alt="Battle in the arena" width="90%">
     </td>
   </tr>
 </table>
