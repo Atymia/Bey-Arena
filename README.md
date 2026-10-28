@@ -141,13 +141,9 @@ After updating, hard-refresh (or clear the site cache) — mobile browsers cache
 
 ## Roadmap
 
-- [ ] Assemblable spinners (blade / weight / tip) with stat trade-offs
-- [ ] Bowl-shaped stadium with tiers
-- [ ] Original character names and art, ready for release
+- [ ] Original names and art
 - [ ] Custom 3D models (`.glb`) with procedural fallback
-- [ ] Music and richer sound design
-- [ ] Progression and unlockable parts
-- [ ] Desktop build for Steam
+- [ ] Add more beyblades
 
 Ideas and bug reports are welcome in the **Issues** tab.
 
