@@ -81,13 +81,7 @@
 </p>
 <p align="center">
   <img src="screenshots/battle.png" alt="Battle in the arena" width="48%">
-  <img src="screenshots/special.png" alt="A special move in action" width="48%">
 </p>
-<p align="center">
-  <img src="screenshots/bracket.png" alt="Tournament bracket" width="48%">
-  <img src="screenshots/mobile.png" alt="Playing on a phone in landscape" width="48%">
-</p>
-
 
 ---
 
