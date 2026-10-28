@@ -83,11 +83,11 @@
     </td>
   </tr>
   <tr>
-    <td align="center" width="50%" valign="top">
+    <td align="center" width="50%" align="top">
       <b>Spinner Selection</b><br>
       <img src="select.png" alt="Spinner selection" width="90%">
     </td>
-    <td align="center" width="50%" valign="top">
+    <td align="center" width="50%" align="top">
       <b>Arena Battle</b><br>
       <img src="fight.png" alt="Battle in the arena" width="90%">
     </td>
