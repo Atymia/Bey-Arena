@@ -61,7 +61,7 @@
 | | Desktop | Phone / tablet |
 |---|---|---|
 | **Steer** | On-screen joystick (mouse drag) | **Tilt the device** (or joystick) |
-| **Base move** | ⚡ button | ⚡ button |
+| **Base move** |  button |  button |
 | **Special move** | ★ button (when charged) | ★ button (when charged) |
 | **Recalibrate tilt** | — | *Recalibrate tilt* on the result screen |
 
