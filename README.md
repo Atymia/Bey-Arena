@@ -83,7 +83,7 @@
     </td>
     <td align="center" width="50%">
       <b>Spinner Selection</b><br>
-      <img src="bey_select.png" alt="Spinner selection">
+      <img src="select.png" alt="Spinner selection">
     </td>
   </tr>
   <tr>
