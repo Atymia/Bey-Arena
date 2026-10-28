@@ -82,12 +82,12 @@
 
 ### Spinner Selection
 <p align="center">
-  <img src="select.jpeg" alt="Spinner selection" height="400" width="200%>
+  <img src="select.jpeg" alt="Spinner selection" height="400" width="200%">
 </p>
 
 ### Arena Battle
 <p align="center">
-  <img src="fight.jpeg" alt="Battle in the arena" height="400" width="200%>
+  <img src="fight.jpeg" alt="Battle in the arena" height="400" width="200%">
 </p>
 
 ---
