@@ -77,7 +77,7 @@
 
 ### Main Menu
 <p align="center">
-  <img src="menu.png" alt="Main menu" height="280">
+  <img src="menu.png" alt="Main menu" height="280" width="50%">
 </p>
 
 ### Spinner Selection
