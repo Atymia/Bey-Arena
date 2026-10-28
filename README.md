@@ -62,7 +62,7 @@
 |---|---|---|
 | **Steer** | On-screen joystick (mouse drag) | **Tilt the device** (or joystick) |
 | **Base move** |  button |  button |
-| **Special move** | ★ button (when charged) | ★ button (when charged) |
+| **Special move** | button (when charged) | button (when charged) |
 | **Recalibrate tilt** | — | *Recalibrate tilt* on the result screen |
 
 **Tips**
@@ -138,7 +138,7 @@ After updating, hard-refresh (or clear the site cache) — mobile browsers cache
 
 ---
 
-## 🧭 Roadmap
+## Roadmap
 
 - [ ] Assemblable spinners (blade / weight / tip) with stat trade-offs
 - [ ] Bowl-shaped stadium with tiers
