@@ -75,13 +75,24 @@
 
 ## Screenshots
 
-<p align="center">
-  <img src="menu.png" alt="Main menu" width="48%">
-  <img src="bey_select.png" alt="Spinner selection" width="48%">
-</p>
-<p align="center">
-  <img src="fight.png" alt="Battle in the arena" width="48%">
-</p>
+<table align="center">
+  <tr>
+    <td align="center" width="50%">
+      <b>Main Menu</b><br>
+      <img src="menu.png" alt="Main menu">
+    </td>
+    <td align="center" width="50%">
+      <b>Spinner Selection</b><br>
+      <img src="bey_select.png" alt="Spinner selection">
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <b>Real-Time 3D Combat</b><br>
+      <img src="fight.png" alt="Battle in the arena" width="80%">
+    </td>
+  </tr>
+</table>
 
 ---
 
