@@ -77,17 +77,17 @@
 
 ### Main Menu
 <p align="center">
-  <img src="menu.png" alt="Main menu" height="280" width="50%">
+  <img src="menu.jpeg" alt="Main menu" height="280" width="50%">
 </p>
 
 ### Spinner Selection
 <p align="center">
-  <img src="select.png" alt="Spinner selection" height="280">
+  <img src="select.jpeg" alt="Spinner selection" height="280">
 </p>
 
 ### Arena Battle
 <p align="center">
-  <img src="fight.png" alt="Battle in the arena" height="280">
+  <img src="fight.jpeg" alt="Battle in the arena" height="280">
 </p>
 
 ---
