@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="Bey Arena — a 3D spinning-top battle game for the browser" width="100%">
+  <img src="banner.svg" alt="Bey Arena — a 3D spinning-top battle game for the browser" width="100%">
 </p>
 
 <p align="center">
