@@ -18,7 +18,7 @@
 
 ---
 
-## ▶ Play it
+## Play it
 
 **[Play in your browser →](https://atymia.github.io/Bey-Arena/)**
 
@@ -27,7 +27,7 @@
 
 ---
 
-## ✨ Features
+## Features
 
 **Battle**
 - **Real-time 3D arena** built with Three.js — tops spin, wobble, collide, and topple when they run out of steam.
@@ -56,7 +56,7 @@
 
 ---
 
-## 🎮 Controls
+## Controls
 
 | | Desktop | Phone / tablet |
 |---|---|---|
@@ -73,7 +73,7 @@
 
 ---
 
-## 🖼 Screenshots
+## Screenshots
 
 <p align="center">
   <img src="screenshots/menu.png" alt="Main menu" width="48%">
@@ -88,21 +88,10 @@
   <img src="screenshots/mobile.png" alt="Playing on a phone in landscape" width="48%">
 </p>
 
-<!--
-  HOW TO ADD YOUR SCREENSHOTS
-  Put PNG/JPG files in /screenshots with exactly these names:
-    menu.png      main menu / mode select
-    select.png    spinner carousel
-    battle.png    two tops clashing mid-battle
-    special.png   a special move active (fire, ice block + snow, storm...)
-    bracket.png   tournament bracket
-    mobile.png    phone in landscape (browser screenshot or device photo)
-  Tip: for the in-battle shots, pause on a special move — they look the best.
--->
 
 ---
 
-## 🚀 Run it yourself
+## Run it yourself
 
 No build step, no dependencies to install. It is plain HTML + JavaScript (Three.js is loaded from a CDN).
 
@@ -118,7 +107,7 @@ python3 -m http.server 8000
 > Opening `index.html` directly with `file://` can block some browser features (motion sensors, PWA).
 > Use a local server, or HTTPS on a phone — motion sensors require a secure context.
 
-### 🌐 Deploy on GitHub Pages
+### Deploy on GitHub Pages
 
 1. Push the files to your repository.
 2. **Settings → Pages → Build and deployment → Deploy from a branch** → choose `main` / root.
