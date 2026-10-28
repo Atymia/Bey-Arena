@@ -76,11 +76,11 @@
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/menu.png" alt="Main menu" width="48%">
-  <img src="screenshots/select.png" alt="Spinner selection" width="48%">
+  <img src="menu.png" alt="Main menu" width="48%">
+  <img src="bey_select.png" alt="Spinner selection" width="48%">
 </p>
 <p align="center">
-  <img src="screenshots/battle.png" alt="Battle in the arena" width="48%">
+  <img src="fight.png" alt="Battle in the arena" width="48%">
 </p>
 
 ---
