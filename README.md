@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="banner.svg" alt="Bey Arena — a 3D spinning-top battle game for the browser" width="100%">
+  <img src="images/banner.svg" alt="Bey Arena — a 3D spinning-top battle game for the browser" width="100%">
 </p>
 
 <p align="center">
@@ -82,12 +82,12 @@
 
 ### Spinner Selection
 <p align="center">
-  <img src="select.jpeg" alt="Spinner selection" height="400" width="200%">
+  <img src="images/select.jpeg" alt="Spinner selection" height="400" width="200%">
 </p>
 
 ### Arena Battle
 <p align="center">
-  <img src="fight.jpeg" alt="Battle in the arena" height="400" width="200%">
+  <img src="images/fight.jpeg" alt="Battle in the arena" height="400" width="200%">
 </p>
 
 ---
