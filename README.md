@@ -80,7 +80,7 @@
   <img src="images/menu.jpeg" alt="Main menu" height="400" width="200%">
 </p>
 
-### Spinner Selection
+### Beyblade Selection
 <p align="center">
   <img src="images/select.jpeg" alt="Spinner selection" height="400" width="200%">
 </p>
