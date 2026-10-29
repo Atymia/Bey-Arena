@@ -127,8 +127,7 @@ After updating, hard-refresh (or clear the site cache) — mobile browsers cache
 ├── beys.js         # Roster data: stats, colors, types, move definitions
 ├── hit.mp3         # Impact sound
 ├── manifest.json   # PWA manifest
-├── assets/         # README banner
-└── screenshots/    # Images shown in this README
+└── images/         # Images shown in this README
 ```
 
 **Where to tweak things**
