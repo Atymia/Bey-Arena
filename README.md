@@ -35,10 +35,8 @@
 **Skill-based abilities**
 - **Base move** (quick cooldown): aim-locked and committed — you pick the moment, and it can miss. Landing it grants a bonus hit and **shortens your special's cooldown**.
 - **Special move** (charged, 2-second show): each spinner has its own signature move with its own visual effect. Its damage is spread over the duration, and it only hurts if the rival is **inside the effect**.
-- Some spinners bend the rules: one fires a clip of **ice shards** that can hit or miss, one raises a **shell guard** that blocks base-move damage and counter-shoves, one **pulls rivals into a tidal field**, one **freezes the rival in ice** while snow falls across the arena.
 
 **Roster & balance**
-- **7 spinners** with distinct stats, movement personalities, colors, and element-themed effects (wind, fire, dark fire, lightning, water, ice, storm).
 - A gentle **type triangle** (attack > stamina > defense > attack) nudges matchups without deciding them.
 - Balanced with a round-robin simulation so every spinner has favorable and unfavorable matchups — skill decides the close ones.
 
