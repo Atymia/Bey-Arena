@@ -80,7 +80,7 @@ const BEY_ROSTER = [
     stats: { attack: 5, defense: 6, stamina: 9, speed: 7 },
     moves: {
       base: { name: 'Glacial Bite', power: 1.10, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Pack Blizzard', power: 2.0, charge: 11, cooldown: 13, duration: 2.0 }
+      special: { name: 'Pack Blizzard', power: 2.0, charge: 11, cooldown: 15, duration: 2.0 }
     }
   },
   {
