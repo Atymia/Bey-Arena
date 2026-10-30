@@ -127,7 +127,7 @@ After updating, hard-refresh (or clear the site cache) — mobile browsers cache
 ├── beys.js         # Roster data: stats, colors, types, move definitions
 ├── hit.mp3         # Impact sound
 ├── manifest.json   # PWA manifest
-└── images/         # Images shown in this README
+└── images/         # Screenshots shown in this README
 ```
 
 **Where to tweak things**
@@ -143,6 +143,8 @@ After updating, hard-refresh (or clear the site cache) — mobile browsers cache
 - [ ] Original names and art
 - [ ] Custom 3D models (`.glb`) with procedural fallback
 - [ ] Add more beyblades
+- [ ] Improve special moves
+- [ ] Decrease/Increase dmg based on beyblade type
 
 Ideas and bug reports are welcome in the **Issues** tab.
 
