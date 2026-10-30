@@ -22,9 +22,6 @@
 
 **[Play in your browser →](https://atymia.github.io/Bey-Arena/)**
 
-> Replace the link above with your GitHub Pages URL (see [Deploy](#-deploy-on-github-pages)).
-> For the best experience on a phone, hold it **in landscape** and add the page to your home screen.
-
 ---
 
 ## Features
