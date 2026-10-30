@@ -77,7 +77,7 @@ const BEY_ROSTER = [
     type: 'stamina',
     colors: { primary: '#5a6068', secondary: '#3e434a', bit: '#f2c829' },
     emblem: 'snowflake',
-    stats: { attack: 4, defense: 6, stamina: 10, speed: 5 },
+    stats: { attack: 6, defense: 7, stamina: 9, speed: 6 },
     moves: {
       base: { name: 'Glacial Bite', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'Pack Blizzard', power: 2.0, charge: 11, cooldown: 13, duration: 2.0 }
@@ -90,7 +90,7 @@ const BEY_ROSTER = [
     type: 'balance',
     colors: { primary: '#1a1a1d', secondary: '#0c0c0e', bit: '#f2c829' },
     emblem: 'sunburst',
-    stats: { attack: 6, defense: 7, stamina: 7, speed: 5 },
+    stats: { attack: 8, defense: 7, stamina: 7, speed: 6 },
     moves: {
       base: { name: 'Golden Bolt', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
       special: { name: 'Olympus Judgment', power: 2.3, charge: 11, cooldown: 13, duration: 2.0 }
