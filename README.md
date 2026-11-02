@@ -60,12 +60,6 @@
 | **Special move** | button (when charged) | button (when charged) |
 | **Recalibrate tilt** | — | *Recalibrate tilt* on the result screen |
 
-**Tips**
-- Time your base move — it dashes along the line you were aiming at when you pressed it.
-- Chain base hits to refill your special faster.
-- Specials only hurt inside their effect, so close the distance (or lure the rival in).
-- Stay off the wall: the KO pockets are waiting.
-
 ---
 
 ## Screenshots
