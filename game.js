@@ -978,16 +978,20 @@ function startBattleLoop() {
 // ---------------------------------------------------------------
 // Small helpers shared by moves and AI
 // ---------------------------------------------------------------
-const GAME_VERSION = 'v40'; // shown on the start screen: check it after uploading
+const GAME_VERSION = 'v41'; // shown on the start screen: check it after uploading
 const AI_SKILL = 0.55; // the CPU's skill in normal play (0 = sloppy, 1 = sharp)
 let AI_STYLE_OVERRIDE = null; // testing only: force one movement style for every CPU
-const EVENT_SOUND = { diveHit: [1, 0.6], diveMiss: [0.45, 0.8], bolt: [0.7, 1.35], parry: [1, 1.25], freeze: [0.8, 1.5],
-                      release: [0.9, 0.9], fling: [0.8, 0.75], howlHit: [0.5, 1.4], wall: [0.35, 1.1], absorb: [0.5, 1.6] };
+// Every visual event also gets its sound: plain clashes and walls use hit.mp3,
+// move sounds are synthesized in sfx.js.
 function emit(type, data) {
   if (!BATTLE || BATTLE.sim) return;
   BATTLE.events.push(Object.assign({ type }, data));
-  const snd = EVENT_SOUND[type];
-  if (snd) playHitSound(snd[0], snd[1]);
+  if (type === 'wall') playHitSound(0.3, 1.15);
+  else if (type === 'base' && window.SFX) {
+    let key = data.kind;
+    if (key === 'zeus') key = data.f.mirror > 0 ? 'zeusMirror' : 'zeusRelease';
+    SFX.base(key);
+  } else if (type !== 'special' && window.SFX) SFX.event(type, data);
   if (type === 'diveHit') BATTLE.hitStop = 0.09;   // a beat of freeze-frame so the hit reads
 }
 function foeOf(f) { return f === BATTLE.a ? BATTLE.b : BATTLE.a; }
@@ -1687,6 +1691,7 @@ function triggerSpecialMove(f, o) {
     case 'dimension': Object.assign(s, { dur: 2.8, bolts: [], nextBolt: 0.3 }); break;
   }
   f.special = s;
+  if (!BATTLE.sim && window.SFX) s.snd = SFX.special(kind);   // start sound (+ loop for long specials)
   emit('special', { f, kind });
   return true;
 }
@@ -1694,6 +1699,7 @@ function triggerSpecialMove(f, o) {
 function endSpecial(f) {
   const s = f.special;
   if (!s) return;
+  if (s.snd) { s.snd.stop(); s.snd = null; }
   if (s.kind === 'dive') { f.airborne = false; f.height = 0; }
   if (s.kind === 'maelstrom') f.anchored = false;
   if (s.kind === 'blizzard' && s.foe) s.foe.iceSlide = 0;
@@ -1839,6 +1845,7 @@ function stepSpecial(f, dt) {
         if (s.t >= s.aiPressAt && !(dimUp && Math.random() < f.skill)) clawPress(f);
         else if (s.t >= s.aiPressAt) s.aiPressAt = Infinity;
       }
+      if (s.count < 3 && s.t >= s.next && s.tickedAt !== s.next) { s.tickedAt = s.next; emit('clawTick', {}); }  // rhythm cue
       if (s.count < 3 && s.t > s.next + 0.22) {     // beat passed with no press
         s.results.push('miss');
         emit('claw', { f, q: 'miss', n: s.count });
@@ -1914,6 +1921,7 @@ function renderBattle(dt) {
 function endBattle(winnerF, loserF, reason) {
   BATTLE.ended = true;
   if (BATTLE.sim) { BATTLE.result = { winner: winnerF, reason }; return; }
+  if (window.SFX) SFX.stopAll();
   battleGen++;                       // invalidate the running loop
   cancelAnimationFrame(battleRafId);
   const winnerBey = winnerF.bey, loserBey = loserF.bey;
@@ -2185,6 +2193,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showScreen('mode');
   });
   $('btn-back-select').addEventListener('click', () => {
+    if (window.SFX) SFX.stopAll();
     if (BATTLE) { BATTLE.ended = true; battleGen++; cancelAnimationFrame(battleRafId); }
     BATTLE = null;
     GAME.pendingMatch = null;
