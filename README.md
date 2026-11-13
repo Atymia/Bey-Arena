@@ -109,7 +109,6 @@ Then open it from the new icon. A few things worth knowing:
 ## Feedback
 
 Bug reports and ideas are very welcome. You can open an issue in the [Issues](https://github.com/Atymia/Bey-Arena/issues) tab. It helps a lot if you mention:
-- the version number on the start screen (e.g. `v45`),
 - your device and browser (e.g. *iPhone 15, Safari* or *Windows, Chrome*),
 - what happened, and which tops were fighting.
 
@@ -142,24 +141,17 @@ To publish your own copy on GitHub Pages, go to **Settings → Pages**, choose *
 └── images/         banner, screenshots and app icons
 ```
 
-If you want to tinker:
-- stats, colors and moves of each top are in `beys.js`
-- the combat numbers (damage, knockback, parry window…) are at the top of `game.js`
-- what each move actually does is in `triggerBaseMove` and `stepSpecial` in `game.js`
-- how each move looks is in the `kit…` functions in `fx.js`
-- how each move sounds is in the `BASE`, `SPECIAL` and `EVENTS` tables in `sfx.js`
-- the stadium size, walls and KO pockets are in `ARENA` and `buildStadium` in `game.js`
-
 ## What's next
 
 - [x] Damage based on skill rather than stats
 - [x] New base and special moves with proper effects
 - [x] A sound for every move
-- [ ] Original names and artwork
+- [ ] Original names
 - [ ] Real 3D models for each top
 - [ ] More tops
 - [ ] Offline play
-- [ ] Music
+- [ ] Online play (1v1, battle royal)
+- [ ] Sound effect based on spinner
 
 ## Credits
 
