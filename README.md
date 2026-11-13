@@ -69,7 +69,7 @@ There are two modes: **Tournament**, where you work your way through a bracket t
     <tr>
       <td align="center"><img src="images/menu.jpeg" alt="Main menu" width="100%"></td>
       <td align="center"><img src="images/select.jpeg" alt="Choosing a top" width="100%"></td>
-      <td align="center"><img src="images/fight.jpeg" alt="A battle in the arena" width="100%"></td>
+      <td align="center"><img src="images/fight.png" alt="A battle in the arena" width="100%"></td>
     </tr>
   </tbody>
 </table>
