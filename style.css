@@ -30,12 +30,12 @@ html, body {
 
 #app {
   min-height: 100vh;
-  min-height: 100dvh; /* dynamic: excludes browser chrome so menus aren't oversized */
+  min-height: 100dvh; /* the visible height, without the browser bars */
   max-width: 480px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  /* Respect the iPhone notch / rounded corners. */
+  /* Keep clear of the iPhone notch and rounded corners. */
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
@@ -177,8 +177,8 @@ main { flex: 1; padding: 0 18px 28px; }
   .topbar { display: none; }
   main { padding: 0; }
 
-  /* Menu screens: fit the viewport, scroll only if truly needed, compact spacing so
-     buttons are always reachable without zooming/scrolling on tall phones. */
+  /* Menu screens fit the screen and only scroll if they really have to, so the buttons
+     are always within reach. */
   #screen-start.active, #screen-mode.active, #screen-select.active,
   #screen-bracket.active, #screen-result.active, #screen-champion.active {
     position: fixed;
@@ -197,7 +197,7 @@ main { flex: 1; padding: 0 18px 28px; }
     width: 100%;
     max-width: 440px;
   }
-  /* Tighten vertical rhythm in landscape menus. */
+  /* Less vertical spacing in landscape menus. */
   .screen-title { font-size: 20px; margin: 6px 0 8px; }
   .mode-list { margin: 14px 0; gap: 10px; }
   .mode-btn { padding: 12px 16px; }
@@ -209,10 +209,9 @@ main { flex: 1; padding: 0 18px 28px; }
 }
 
 /* ============================================================
-   Fullscreen landscape layout for mobile play.
-   The battle screen becomes an immersive full-viewport view:
-   the 3D arena fills the screen and the HUD + controls float
-   on top in the corners, like the reference project.
+   Phone layout (landscape).
+   During a battle the 3D arena fills the whole screen, and the
+   HUD and controls sit on top of it in the corners.
    ============================================================ */
 @media (pointer: coarse) and (orientation: landscape) {
   #app { max-width: none; }
@@ -227,13 +226,13 @@ main { flex: 1; padding: 0 18px 28px; }
   #screen-battle .arena-wrap { position: fixed; inset: 0; z-index: 1; }
   #screen-battle #arena {
     width: 100vw;
-    height: 100dvh; /* dynamic viewport height: fills the actually-visible area */
+    height: 100dvh; /* fill exactly the visible area */
     aspect-ratio: auto;
     border: none;
     border-radius: 0;
   }
 
-  /* HUD floats across the top: player left, VS centered, rival right. */
+  /* HUD across the top: player on the left, VS in the middle, rival on the right. */
   #screen-battle .battle-hud {
     position: fixed;
     top: 8px;
@@ -250,7 +249,7 @@ main { flex: 1; padding: 0 18px 28px; }
   #screen-battle .fighter-hud { flex: 0 1 40%; max-width: 40%; }
   #screen-battle .vs-col { flex: 0 0 auto; }
 
-  /* Controls overlaid bottom corners: stick bottom-left, abilities bottom-right. */
+  /* Controls in the bottom corners: joystick on the left, move buttons on the right. */
   #screen-battle .battle-controls {
     position: fixed;
     inset: 0;
@@ -283,7 +282,7 @@ main { flex: 1; padding: 0 18px 28px; }
 .joystick { width: 86px; height: 86px; border-radius: 50%; background: var(--bg-card); border: 1px solid var(--steel-dim); position: relative; flex-shrink: 0; touch-action: none; }
 .joystick-knob { width: 36px; height: 36px; border-radius: 50%; background: var(--steel); position: absolute; top: 25px; left: 25px; pointer-events: none; }
 
-/* Compact round ability buttons with a radial cooldown sweep (no bar). */
+/* Small round move buttons; the cooldown sweeps around them like a clock. */
 .ability-buttons { display: flex; gap: 12px; }
 .ability-btn {
   --glow: var(--steel);
@@ -307,8 +306,8 @@ main { flex: 1; padding: 0 18px 28px; }
 .ability-btn:disabled { cursor: default; }
 .ability-icon { font-size: 20px; line-height: 1; color: var(--glow); text-shadow: 0 0 8px var(--glow); pointer-events: none; }
 .ability-name { font-size: 8.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.85; pointer-events: none; }
-/* The cooldown overlay is a dark wedge that shrinks as the move charges, revealed via
-   a conic gradient driven by --cd (0 = ready, 1 = full cooldown). */
+/* The cooldown is a dark wedge that shrinks as the move recharges. It's a conic
+   gradient driven by --cd (0 = ready, 1 = just used). */
 .cooldown-overlay {
   position: absolute; inset: 0;
   border-radius: 50%;
@@ -316,7 +315,7 @@ main { flex: 1; padding: 0 18px 28px; }
   pointer-events: none;
 }
 
-/* ---------- Orientation lock (mobile, landscape required) ---------- */
+/* ---------- "Rotate your phone" screen ---------- */
 .rotate-overlay {
   display: none;
   position: fixed; inset: 0; z-index: 1000;
@@ -328,7 +327,7 @@ main { flex: 1; padding: 0 18px 28px; }
 .rotate-icon { font-size: 54px; color: var(--amber); animation: rotate-hint 2s ease-in-out infinite; }
 @keyframes rotate-hint { 0%,100% { transform: rotate(0); } 50% { transform: rotate(90deg); } }
 .rotate-overlay p { font-size: 15px; color: var(--text); margin-top: 16px; line-height: 1.5; }
-/* Show the overlay only on touch devices held in portrait. */
+/* Only shown on touch devices held upright. */
 @media (orientation: portrait) and (pointer: coarse) {
   .rotate-overlay { display: flex; }
 }

@@ -7,11 +7,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0b0e13">
-<meta name="apple-mobile-web-app-title" content="Bey Arena">
+<meta name="apple-mobile-web-app-title" content="Lobo">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="images/icon-192.png">
-<title>Bey Arena</title>
+<title>Lobo</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -24,12 +24,12 @@
     </div>
   </div>
 
-  <header class="topbar"><h1 class="logo">BEY<span>ARENA</span></h1></header>
+  <header class="topbar"><h1 class="logo"><span>LOBO</span></h1></header>
 
   <main>
 
     <section id="screen-start" class="screen active">
-      <h2 class="screen-title">BEY ARENA</h2>
+      <h2 class="screen-title">LOBO</h2>
       <p class="start-blurb">Spin, clash, and ring out your rival.</p>
       <button id="btn-start" class="btn btn-primary">Start</button>
       <p id="start-tilt-status" class="start-tilt-status"></p>
@@ -131,7 +131,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<!-- Bloom (glow) post-processing; the game still runs without it if these fail to load. -->
+<!-- These add the glow effect. If they fail to load, the game still works, just without the glow. -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>

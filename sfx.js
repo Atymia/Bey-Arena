@@ -1,14 +1,15 @@
-// sfx.js — synthesized move sounds (Web Audio API, no audio files).
-// The plain bey-on-bey clash keeps using hit.mp3 (game.js). Everything here is
-// generated live: noise + oscillators shaped by filters and envelopes.
+// sfx.js: the move sounds.
+// There are no audio files here: every sound is built on the fly with the Web Audio API,
+// out of noise and oscillators shaped with filters and volume envelopes.
+// The normal clash between two beys still uses hit.mp3 (see game.js).
 (function () {
   'use strict';
   let ctx = null, out = null, noiseBuf = null, crackleBuf = null, boundTo = null;
-  const live = new Set();          // running loops (stopped when a battle ends)
-  const lastAt = {};               // per-sound rate limit
+  const live = new Set();          // loops that are playing (stopped when the battle ends)
+  const lastAt = {};               // when each sound last played, so they don't stack up
 
   // ---------------------------------------------------------------
-  // Context wiring (the game's AudioContext, or an OfflineAudioContext for previews)
+  // Setup: uses the game's AudioContext, or an OfflineAudioContext to record a preview
   // ---------------------------------------------------------------
   function bind(c, dest) {
     ctx = c;
@@ -21,7 +22,7 @@
     boundTo = c;
   }
   function ensure() {
-    if (typeof audioCtx === 'undefined' || !audioCtx) return false;   // unlocked by a tap in game.js
+    if (typeof audioCtx === 'undefined' || !audioCtx) return false;   // game.js creates it on the first tap
     if (boundTo !== audioCtx) bind(audioCtx);
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return true;
@@ -31,7 +32,7 @@
     for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     return b;
   }
-  // Sparse random clicks: the "crackle" of fire and ice.
+  // Random clicks here and there: the crackle of fire and ice.
   function makeCrackle() {
     const n = ctx.sampleRate * 2, b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
     for (let i = 0; i < n; i++) {
@@ -45,7 +46,7 @@
   }
 
   // ---------------------------------------------------------------
-  // Building blocks (t = absolute context time)
+  // Building blocks (t is the audio context's clock time)
   // ---------------------------------------------------------------
   function env(t, a, peak, d, dest) {
     const g = ctx.createGain();
@@ -79,14 +80,14 @@
   // ---------------------------------------------------------------
   // One-shot sounds
   // ---------------------------------------------------------------
-  // Air rushing past: band-passed noise sweeping up then down.
+  // Rushing air: filtered noise that sweeps up and back down.
   function whoosh(t, v, f0, f1, f2, dur, q) {
     const n = src(noiseBuf, t, dur), bp = filt('bandpass', f0, q || 1.1, t);
     bp.frequency.linearRampToValueAtTime(f1, t + dur * 0.4);
     bp.frequency.exponentialRampToValueAtTime(f2, t + dur);
     chain(n, bp, env(t, dur * 0.35, v, dur * 0.65));
   }
-  // Low body hit with a pitch drop.
+  // A low thud that drops in pitch.
   function thump(t, v, f0, f1, dur) {
     const o = osc('sine', f0, t, dur);
     o.frequency.exponentialRampToValueAtTime(f1, t + dur);
@@ -95,7 +96,7 @@
   function crack(t, v, dur, hp) {
     chain(src(crackleBuf, t, dur), filt('highpass', hp || 1500, 0.7, t), env(t, 0.01, v, dur));
   }
-  // FM bell / metal ring.
+  // Bell or ringing metal (FM synthesis).
   function bell(t, v, f, dur) {
     const car = osc('sine', f, t, dur), mod = osc('sine', f * 1.41, t, dur), mg = ctx.createGain();
     mg.gain.setValueAtTime(f * 2.2, t); mg.gain.exponentialRampToValueAtTime(f * 0.05, t + dur);
@@ -104,7 +105,7 @@
     const p = osc('sine', f * 2.76, t, dur * 0.6);
     chain(p, env(t, 0.004, v * 0.3, dur * 0.6));
   }
-  // Electric zap: jittery sawtooth + hiss.
+  // Electric zap: a jittery sawtooth with some hiss.
   function zap(t, v, dur) {
     const o = osc('sawtooth', 900, t, dur);
     for (let k = 0.012; k < dur; k += 0.012 + Math.random() * 0.01) o.frequency.setValueAtTime(250 + Math.random() * 1700, t + k);
@@ -133,7 +134,7 @@
     chain(src(noiseBuf, t, dur), lp, env(t, dur * 0.3, v, dur * 0.7));
     crack(t, v * 0.7, dur, 1200);
   }
-  // Phoenix cry: a bright gliding screech.
+  // Phoenix cry: a bright screech that glides up and down.
   function birdCry(t, v) {
     const o = osc('sawtooth', 900, t, 0.75);
     o.frequency.exponentialRampToValueAtTime(1750, t + 0.14);
@@ -154,7 +155,7 @@
     g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(v * 0.6, t + dur); g2.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.06);
     g2.connect(out); chain(src(noiseBuf, t, dur + 0.1), bp, g2);
   }
-  // Wolf howl: two detuned voices gliding up and down through vocal formants.
+  // Wolf howl: two slightly detuned voices gliding through vowel-like filters.
   function howl(t, v) {
     const dur = 1.25;
     const f = (o) => {
@@ -198,8 +199,8 @@
   }
 
   // ---------------------------------------------------------------
-  // Loops for sustained specials, pre-scheduled for their duration.
-  // stop() fades them out early (special ended, battle over).
+  // Loops for the specials that last a while. They're scheduled for the whole duration,
+  // and stop() fades them out early if the special ends sooner or the battle is over.
   // ---------------------------------------------------------------
   function loop(t, dur, build) {
     const bus = ctx.createGain();
@@ -255,7 +256,7 @@
       const trem = ctx.createGain(); trem.gain.value = v * 0.7;
       lfo(t, dur, 3.5, v * 0.35, trem.gain, nodes);
       n.connect(lp); lp.connect(trem); trem.connect(bus);
-      // bubbles: short rising sine "bloops"
+      // bubbles: short rising "bloop" sounds
       for (let k = 0.1; k < dur - 0.1; k += 0.06 + Math.random() * 0.12) {
         const tt = t + k, f0 = 250 + Math.random() * 350;
         const o = osc('sine', f0, tt, 0.08); nodes.push(o);
@@ -280,7 +281,7 @@
   }
 
   // ---------------------------------------------------------------
-  // Per-move sound design
+  // The sound of each move
   // ---------------------------------------------------------------
   const BASE = {
     dragoon: (t) => whoosh(t, 0.7, 500, 2400, 700, 0.62),
@@ -334,8 +335,8 @@
   const RATE = { drain: 0.25, gust: 0.1, reflect: 0.12, block: 0.08, howlHit: 0.1 };
 
   const SFX = {
-    bind,                                  // for offline previews
-    // A game event (see emit() in game.js). Returns nothing.
+    bind,                                  // used to record a preview offline
+    // Sound for a game event (see emit() in game.js).
     event(type, e) {
       if (!ensure()) return;
       const fn = EVENTS[type];
@@ -343,20 +344,20 @@
       const now = ctx.currentTime;
       if (RATE[type] && lastAt[type] != null && now - lastAt[type] < RATE[type]) return;
       lastAt[type] = now;
-      try { fn(now + 0.005, e || {}); } catch (err) { /* never break the game for a sound */ }
+      try { fn(now + 0.005, e || {}); } catch (err) { /* a sound failing should never break the game */ }
     },
-    // Base move sound for a bey id (or 'pounce2', 'zeusMirror', 'zeusRelease').
+    // Base move sound for a bey id (plus 'pounce2', 'zeusMirror' and 'zeusRelease').
     base(key) {
       if (!ensure() || !BASE[key]) return;
       try { BASE[key](ctx.currentTime + 0.005); } catch (err) { /* ignore */ }
     },
-    // Special start; returns a loop handle (call .stop()) or null.
+    // Starts a special's sound. Returns something with .stop() for looping ones, or null.
     special(kind) {
       if (!ensure() || !SPECIAL[kind]) return null;
       try { return SPECIAL[kind](ctx.currentTime + 0.005); } catch (err) { return null; }
     },
     stopAll() { for (const h of Array.from(live)) h.stop(); },
-    // Offline preview helpers
+    // For recording a preview offline
     _play(group, key, t, e) { const g = { base: BASE, special: SPECIAL, event: EVENTS }[group]; return g[key](t, e || {}); }
   };
   window.SFX = SFX;

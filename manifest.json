@@ -1,6 +1,6 @@
 {
-  "name": "Bey Arena",
-  "short_name": "Bey Arena",
+  "name": "Lobo",
+  "short_name": "Lobo",
   "description": "A skill-based 3D spinning-top battle game for the browser.",
   "start_url": "./index.html",
   "display": "fullscreen",

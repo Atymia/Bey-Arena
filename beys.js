@@ -1,9 +1,9 @@
-// beys.js — Bey roster data.
-// Stats are 1-10. "type" drives AI movement personality (attack/defense/stamina/balance),
-// mirroring how the series usually characterizes each bey. Stats shape how a bey MOVES
-// (speed, mass, endurance); damage comes from how well each hit is landed (see game.js).
-// Each bey's base/special mechanics live in game.js (triggerBaseMove / stepSpecial);
-// move names here are original, anime-flavored re-imaginings.
+// beys.js: the roster.
+// Stats go from 1 to 10. They change how a bey moves (speed, weight, endurance), while
+// damage depends on how well you land your hits (see game.js). "type" sets how the CPU
+// drives each bey (attack, defense, stamina or balance), following the show.
+// What each move actually does is in game.js (triggerBaseMove / stepSpecial).
+// The move names are my own, loosely inspired by the show.
 
 const BEY_ROSTER = [
   {
@@ -99,8 +99,8 @@ const BEY_ROSTER = [
   }
 ];
 
-// Overall "power score" used only for the instant CPU-vs-CPU simulation
-// (the player's own matches are resolved live by the physics/3D engine instead).
+// A rough strength score, only used to decide CPU-vs-CPU matches in a tournament
+// instantly. The player's own matches are always played out for real.
 function beyPowerScore(bey) {
   const s = bey.stats;
   return s.attack * 1.1 + s.defense * 0.9 + s.stamina * 0.8 + s.speed * 1.0;

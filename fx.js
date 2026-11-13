@@ -1,12 +1,12 @@
-// fx.js — move visuals for Bey Arena.
-// Presentation only: reads the battle state (fighters, specials, trails, waves) and the
-// events that game.js emits, and draws shader-based effects, particles and bloom.
-// Nothing in here changes the game rules.
+// fx.js: what the moves look like.
+// It only draws things. It reads the battle state and the events sent by game.js,
+// and turns them into shader effects, particles and glow. Nothing in here changes
+// how the game plays.
 (function () {
   'use strict';
 
   // ---------------------------------------------------------------
-  // GLSL helpers: 3D simplex noise (Ashima / Stefan Gustavson) + fbm
+  // GLSL helpers: 3D simplex noise (by Ashima Arts / Stefan Gustavson) and fbm
   // ---------------------------------------------------------------
   const NOISE = `
   vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
@@ -43,7 +43,7 @@
     vN=normalize(normalMatrix*normal); vV=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }`;
 
   const TAU = Math.PI * 2;
-  const V3 = (x, y, h) => new THREE.Vector3(x, h, y);   // game (x,y,height) -> world
+  const V3 = (x, y, h) => new THREE.Vector3(x, h, y);   // game coords (x, y, height) to 3D world coords
   const col = (c) => new THREE.Color(c);
 
   function shaderMat(frag, uniforms, opts) {
@@ -62,7 +62,7 @@
   // ---------------------------------------------------------------
   // Materials
   // ---------------------------------------------------------------
-  // Fire on a cylinder/cone (uv.x around, uv.y up). Periodic noise: no seam.
+  // Fire on a cylinder or cone (uv.x goes around, uv.y goes up). The noise wraps, so no seam.
   function fireMat(core, mid, edge, opts) {
     return shaderMat(`
       uniform float uTime, uI, uSpeed, uDark; uniform vec3 uCore, uMid, uEdge;
@@ -152,7 +152,7 @@
       }`, { uColor: { value: col(color) }, uR: { value: 0.8 }, uW: { value: 0.06 }, uSeg: { value: (opts && opts.seg) || 0 },
             uFill: { value: (opts && opts.fill) || 0 } }, { normal: !!(opts && opts.normal) });
   }
-  // Fresnel energy shell (dark domes, shells, crystals). Bright rim, tinted interior.
+  // Energy shell with a bright edge and a tinted inside (dark domes, shells, ice crystals).
   function fresnelMat(inner, rim, opts) {
     opts = opts || {};
     return shaderMat(`
@@ -175,7 +175,7 @@
             uPow: { value: opts.pow || 2.2 }, uHex: { value: opts.hex ? 1 : 0 } },
       { vert: FRESNEL_VERT, normal: opts.normal, side: opts.side == null ? THREE.FrontSide : opts.side });
   }
-  // Flowing energy along a tube (tendrils, bolts' glow, beams).
+  // Energy flowing along a tube (tendrils, lightning glow, beams).
   function flowMat(color, opts) {
     return shaderMat(`
       uniform float uTime, uI; uniform vec3 uColor; varying vec2 vUv;
@@ -198,8 +198,8 @@
   }
 
   // ---------------------------------------------------------------
-  // Particles: one additive pool (fire, sparks, energy) + one normal pool
-  // (smoke, snow, spray, debris). Ring buffers, CPU-integrated.
+  // Particles. One pool glows (fire, sparks, energy) and one doesn't (smoke, snow,
+  // spray, debris). Both reuse a fixed set of slots.
   // ---------------------------------------------------------------
   const P_VERT = `
     attribute float aSize; attribute float aAlpha; attribute vec3 aColor;
@@ -273,7 +273,7 @@
     clear() { this.age.fill(0); this.life.fill(0); }
   }
 
-  // Lightning: a jagged polyline turned into a glowing tube (white core + colored glow).
+  // Lightning: a jagged line turned into a tube, white in the middle with a colored glow.
   function boltPoints(a, b, jitter, segs) {
     const pts = [];
     for (let i = 0; i <= segs; i++) {
@@ -318,30 +318,30 @@
   const FX = { ready: false };
   let R, S, C, lights = {}, bloomComposer = null, finalComposer = null, bloom = null, mixPass = null, bloomLevel = 0;
   const BLOOM_LAYER = 1;
-  // Only effect objects glow: they live on layer 0 (normal render) AND layer 1 (bloom).
+  // Only the effects glow. They're on layer 0 (normal render) and also on layer 1 (glow).
   function markBloom(obj) { obj.traverse((n) => { if (!n.userData.noBloom) n.layers.enable(BLOOM_LAYER); }); return obj; }
   FX.markBloom = markBloom;
   let add, smoke, root, kits = [], shake = 0, flashLight, flashI = 0;
   let generic = null;
   let dimTarget = 0, dim = 0;
-  // Safety valve for weak phones: if frames get slow while the glow is on, drop the glow.
+  // For weaker phones: if the game slows down while the glow is on, turn the glow off.
   let slowT = 0, lowPower = false, dtAvg = 1 / 60;
   const tmpV = new THREE.Vector3();
 
   FX.init = function (renderer, scene, camera, lightRefs) {
     R = renderer; S = scene; C = camera; lights = lightRefs || {};
-    S.background = new THREE.Color(0x0b0e13);     // identical with or without bloom
+    S.background = new THREE.Color(0x0b0e13);     // same color with or without the glow
     root = new THREE.Group(); S.add(root);
     add = new Pool(2200, true, 1.3);
     smoke = new Pool(1400, false, 1.1);
     S.add(add.points); S.add(smoke.points);
-    markBloom(add.points);                           // sparks/fire glow; smoke and snow don't
+    markBloom(add.points);                           // sparks and fire glow, smoke and snow don't
     flashLight = new THREE.PointLight(0xffaa55, 0, 220, 2);
     S.add(flashLight);
     if (THREE.EffectComposer && THREE.RenderPass && THREE.UnrealBloomPass && THREE.ShaderPass) {
       try {
-        // Selective bloom (three.js example pattern): render only layer-1 objects into a
-        // bloom buffer, blur it, then add it on top of the normal render.
+        // Selective glow: draw only the layer-1 objects into a separate buffer, blur it,
+        // and add it on top of the normal image.
         const size = R.getSize(new THREE.Vector2());
         bloomComposer = new THREE.EffectComposer(R);
         bloomComposer.renderToScreen = false;
@@ -377,9 +377,9 @@
   };
   FX.render = function () {
     if (finalComposer && bloomLevel > 0.01 && !lowPower) {
-      // 1) glow buffer: effects only, on black
-      // (the glow pass sees no lights or beys, so it must not touch the shadow map —
-      //  that is what left stale bey shadows on the floor)
+      // 1) Glow buffer: just the effects, on black.
+      // This pass has no lights or beys, so it must not update the shadow map,
+      // otherwise old bey shadows get left on the floor.
       const bg = S.background;
       S.background = null;
       C.layers.set(BLOOM_LAYER);
@@ -389,7 +389,7 @@
       R.shadowMap.autoUpdate = au;
       C.layers.set(0);
       S.background = bg;
-      // 2) normal scene (shadows refreshed here) + glow on top
+      // 2) The normal scene (shadows get updated here), with the glow on top.
       R.shadowMap.needsUpdate = true;
       mixPass.uniforms.uBloom.value = bloomLevel;
       finalComposer.render();
@@ -471,7 +471,7 @@
   }
 
   // ---------------------------------------------------------------
-  // Per-bey kits. Each returns { update(dt, t), onEvent(e), dispose() }.
+  // One kit per bey. Each returns { update(dt, t), onEvent(e), dispose() }.
   // ---------------------------------------------------------------
   function emitFire(x, y, h, n, spread, dark) {
     for (let i = 0; i < n; i++) {
@@ -488,10 +488,10 @@
     }
   }
 
-  // DRAGOON — Gale Trail + Sky Tornado
+  // Dragoon: Gale Trail and Sky Tornado
   function kitDragoon(f) {
     const g = new THREE.Group(); root.add(g);
-    // Tornado funnel: two lathe layers (dusty outer, bright inner streaks).
+    // The tornado: two layers, dusty on the outside with bright streaks inside.
     const prof = [];
     for (let i = 0; i <= 18; i++) { const t = i / 18; prof.push(new THREE.Vector2(9 + 62 * Math.pow(t, 1.5), t * 220)); }
     const funnelGeo = new THREE.LatheGeometry(prof, 48);
@@ -503,7 +503,7 @@
     const funnel = new THREE.Group(); funnel.add(outer); funnel.add(inner); funnel.visible = false; g.add(funnel);
     outer.userData.noBloom = true;
     const dust = disc(1, ringMat(0xc9ced8, { normal: true }), 0.8); dust.visible = false; g.add(dust);
-    // Gale trails (ribbons)
+    // Gale trails
     const ribbons = [];
     function ribbonFor(tr) {
       const max = 40;
@@ -588,19 +588,19 @@
     };
   }
 
-  // DRANZER / BLACK DRANZER — fire dashes. DRANZER special: Phoenix Dive.
+  // Dranzer: Flame Arc and Phoenix Dive
   function kitDranzer(f) {
     const g = new THREE.Group(); root.add(g);
-    // Phoenix aura while airborne: a flame cocoon + wings of fire particles.
+    // While it's in the air: a cocoon of flames and wings made of fire particles.
     const cocoonGeo = new THREE.CylinderGeometry(10, 26, 46, 32, 1, true);
     const cocoonMat = fireMat(0xfff4c2, 0xff8a1e, 0xb3120a, { speed: 3.2 });
     const cocoon = new THREE.Mesh(cocoonGeo, cocoonMat); cocoon.visible = false; cocoon.renderOrder = 18; g.add(cocoon);
-    // Ground reticle: outer segmented ring + inner ring + soft fill
+    // Target on the ground: a segmented outer ring, an inner ring and a soft fill
     const ret = disc(1, ringMat(0xff8a1e, { seg: 8, fill: 1 }), 1.0); ret.visible = false; g.add(ret);
     const retIn = disc(1, ringMat(0xffe0a0), 1.1); retIn.visible = false; g.add(retIn);
     const shadow = disc(1, ringMat(0x000000, { normal: true, fill: 2.5 }), 0.7); shadow.visible = false; g.add(shadow);
     shadow.userData.noBloom = true;
-    // Light pillar marking the strike point once the target locks.
+    // Column of light on the target once it locks.
     const pillarMat = fireMat(0xffd27a, 0xff6a1a, 0x8a0f05, { speed: 4 });
     const pillar = new THREE.Mesh(new THREE.CylinderGeometry(9, 14, 140, 24, 1, true), pillarMat);
     pillar.visible = false; pillar.renderOrder = 18; g.add(pillar);
@@ -609,11 +609,11 @@
     const erupt = new THREE.Mesh(new THREE.CylinderGeometry(22, 48, 120, 32, 1, true), eruptMat);
     erupt.visible = false; erupt.renderOrder = 18; g.add(erupt);
     let eruptT = 1, eruptX = 0, eruptY = 0;
-    // Dazed sparks circling Dranzer after a missed dive.
+    // Sparks circling Dranzer when it's stunned after a missed dive.
     let lastPhase = null;
     return {
       update(dt, t) {
-        // Flame Arc: fire pours off Dranzer while the base dash is live
+        // Flame Arc: fire comes off Dranzer during the dash
         if (f.boostTimer > 0 && f.boostSource === 'base') emitFire(f.x, f.y, 8, 4, 12, false);
         const s = f.special && f.special.kind === 'dive' ? f.special : null;
         if (!s) { cocoon.visible = ret.visible = retIn.visible = shadow.visible = false; lastPhase = null; return; }
@@ -626,14 +626,14 @@
         cocoon.scale.set(1.2, 1.2 * stretch, 1.2);
         cocoonMat.uniforms.uI.value = airborne ? 0.5 : 0;
         if (airborne) {
-          // Phoenix wings: two swept-back fans of flame, flapping.
+          // Phoenix wings: two flapping fans of flame, swept back.
           const flap = Math.sin(t * 8);
           for (let side = -1; side <= 1; side += 2) {
             for (let i = 0; i < 10; i++) {
-              const u = Math.random();                       // 0 = shoulder, 1 = wing tip
+              const u = Math.random();                       // 0 at the shoulder, 1 at the wing tip
               const feather = (Math.random() - 0.5) * 10 * u;
               const wx = side * (10 + u * 70);
-              const wy = 6 + u * u * 34 + feather;            // swept back (toward +y, away from camera)
+              const wy = 6 + u * u * 34 + feather;            // swept back, away from the camera
               const wh = h + 16 + u * (18 + 16 * flap);
               const cIn = u < 0.35 ? 0xffd27a : 0xff7a1e, cOut = u < 0.35 ? 0xff5a10 : 0xb3120a;
               add.emit({ x: f.x + wx, y: f.y + wy, h: wh, vx: side * 6, vy: 25, vh: -8, life: 0.24, size: 22 - u * 10, size1: 6,
@@ -647,7 +647,7 @@
           if (Math.random() < 0.8) add.emit({ x: f.x + (Math.random() - 0.5) * 40, y: f.y + (Math.random() - 0.5) * 40, h: h, vx: 0, vy: 0, vh: -30,
             life: 0.8, size: 4, size1: 1, color: 0xffb347, color1: 0xff2a00, grav: -60, boost: 1.0 });
           if (s.phase === 'dive') {
-            // comet: a dense trail of fire along the plunge
+            // a thick trail of fire as it dives, like a comet
             for (let i = 0; i < 10; i++) {
               const k = Math.random();
               add.emit({ x: f.x + (s.fx - f.x) * k * 0.6 + (Math.random() - 0.5) * 10, y: f.y + (s.fy - f.y) * k * 0.6 + (Math.random() - 0.5) * 10,
@@ -656,7 +656,7 @@
             }
           }
         }
-        // Strike-point pillar while the target is locked or the bey is plunging
+        // Column of light while the target is locked or Dranzer is diving
         const showPillar = s.phase === 'lock' || s.phase === 'dive';
         pillar.visible = showPillar;
         if (showPillar) {
@@ -746,7 +746,7 @@
     };
   }
 
-  // BLACK DRANZER — Dark Claw + Eclipse Drain
+  // Black Dranzer: Dark Claw and Eclipse Drain
   function kitBlackDranzer(f) {
     const g = new THREE.Group(); root.add(g);
     const sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 28), fresnelMat(0x12020a, 0xff2a2a, { normal: true, innerA: 0.45, pow: 2.6 }));
@@ -783,7 +783,7 @@
             tendril.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 2.2, 5, false);
           }
           tendril.visible = true; tendrilMat.uniforms.uTime.value = t; tendrilMat.uniforms.uI.value = 1.4 * k;
-          // spin particles flowing from the rival into Black Dranzer
+          // particles flowing from the rival into Black Dranzer (the drained spin)
           const dx = f.x - o.x, dy = f.y - o.y;
           add.emit({ x: o.x, y: o.y, h: 14, vx: dx * 2.2, vy: dy * 2.2, vh: 20, life: 0.45, size: 7, size1: 3, color: 0xff4a3a, color1: 0x7a0000, boost: 1.1 });
         } else tendril.visible = false;
@@ -797,7 +797,7 @@
     };
   }
 
-  // DRIGER — Twin Pounce + Thunder Claw
+  // Driger: Twin Pounce and Thunder Claw
   function kitDriger(f) {
     const g = new THREE.Group(); root.add(g);
     const bolts = [0, 1, 2, 3].map(() => new Bolt(g, 0x3dff5a, 1.0, 3.4));
@@ -867,7 +867,7 @@
     };
   }
 
-  // DRACIEL — Iron Shell (parry) + Maelstrom
+  // Draciel: Iron Shell and Maelstrom
   function kitDraciel(f) {
     const g = new THREE.Group(); root.add(g);
     const shell = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 18, 0, TAU, 0, Math.PI * 0.55), fresnelMat(0x0b3a1a, 0x9dffb0, { innerA: 0.25, pow: 1.6, hex: true }));
@@ -878,7 +878,7 @@
     const wall = new THREE.Mesh(wallGeo, wallMat); wall.visible = false; wall.renderOrder = 17; g.add(wall);
     return {
       update(dt, t) {
-        // Shell: gold while the parry window is open, green after.
+        // The shell is gold while a parry is still possible, then turns green.
         if (f.guardTimer > 0) {
           const parry = f.guardAge <= PARRY_WINDOW;
           shell.visible = true;
@@ -919,7 +919,7 @@
     };
   }
 
-  // WOLBORG — Frost Howl + White Blizzard
+  // Wolborg: Frost Howl and White Blizzard
   function kitWolborg(f) {
     const g = new THREE.Group(); root.add(g);
     const sheet = disc(1, iceSheetMat(), 0.45); sheet.visible = false; sheet.renderOrder = 11; g.add(sheet);
@@ -933,7 +933,7 @@
       sh.rotation.set(Math.sin(a) * 0.6, 0, -Math.cos(a) * 0.6); crystal.add(sh);
     }
     crystal.visible = false; crystal.children.forEach((c) => { c.renderOrder = 19; }); g.add(crystal);
-    // Howl cones: one arc mesh per live wave
+    // One cone shape for each howl in flight
     const arcs = [];
     function arcFor(w) {
       const m = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 32, 1, -w.half, w.half * 2), new THREE.MeshBasicMaterial({ color: 0xcdeeff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
@@ -978,7 +978,7 @@
           if (Math.random() < 0.3) smoke.emit({ x: (Math.random() - 0.5) * ARENA.r * 2, y: (Math.random() - 0.5) * ARENA.r * 2, h: 10, vx: 80, vy: 0, vh: 5,
             life: 1.6, size: 60, size1: 110, color: 0xe8f6ff, alpha: 0.12 * k, drag: 0.5 });
         } else sheet.visible = false;
-        // Frozen rival: crystal around it
+        // Frozen rival: ice crystal around it
         if (o.frozen > 0) {
           crystal.visible = true; crystal.position.set(o.x, 0, o.y);
           crystalMat.uniforms.uTime.value = t; crystalMat.uniforms.uI.value = Math.min(1, o.frozen / 0.15) * 1.2;
@@ -1002,7 +1002,7 @@
     };
   }
 
-  // ZEUS — Mirror Guard + Dark Dimension
+  // Zeus: Mirror Guard and Dark Dimension
   function kitZeus(f) {
     const g = new THREE.Group(); root.add(g);
     const shards = [];
@@ -1027,7 +1027,7 @@
     let bi = 0;
     return {
       update(dt, t) {
-        // Mirror shards orbit while the mirror is up; glow when a hit is stored.
+        // Mirror shards circle Zeus while the mirror is up, and glow once a hit is stored.
         const showShards = f.mirror > 0 || f.mirrorStore > 0.005;
         shards.forEach((m, i) => {
           m.visible = showShards;
@@ -1059,7 +1059,7 @@
             m.rotation.z = t * (4 + i) * (i % 2 ? -1 : 1);
             m.material.opacity = 0.7 * k;
           });
-          // bolt telegraphs on the ground
+          // warning markers on the ground before each bolt
           markers.forEach((m, i) => {
             const b = s.bolts[i];
             if (!b || b.struck) { m.visible = false; return; }
@@ -1111,7 +1111,7 @@
       if (make) kits.push(make(f));
     }
     markBloom(root);
-    // the bey's own bit glow (halo + beam) should glow too
+    // the bit's halo and beam on each bey glow too
     [meshA, meshB].forEach((m) => { const gl = m && m.userData.glow; if (gl) { gl.halo.layers.enable(BLOOM_LAYER); gl.beam.layers.enable(BLOOM_LAYER); } });
   };
 
@@ -1124,21 +1124,21 @@
     for (const k of kits) { k.update(dt, t); if (k.tick) k.tick(dt, t); }
     generic.update(dt);
     add.update(dt); smoke.update(dt);
-    // Scene lighting: dims during Eclipse / Dark Dimension.
+    // The lights dim during Eclipse Drain and Dark Dimension.
     dim += (dimTarget - dim) * Math.min(1, dt * 6);
     if (lights.ambient) lights.ambient.intensity = lights.ambientBase * (1 - dim);
     if (lights.dir) lights.dir.intensity = lights.dirBase * (1 - dim * 0.85);
-    // Impact flash light
+    // Flash of light on big hits
     flashI = Math.max(0, flashI - dt * 9);
     flashLight.intensity = flashI;
-    // Camera shake (applied on top of the follow camera)
+    // Camera shake, on top of the normal camera movement
     if (shake > 0.05) {
       C.position.x += (Math.random() - 0.5) * shake;
       C.position.y += (Math.random() - 0.5) * shake;
       C.position.z += (Math.random() - 0.5) * shake;
       shake *= Math.max(0, 1 - dt * 9);
     }
-    // Bloom only while something glows (saves battery the rest of the time).
+    // Only run the glow pass when something is glowing, to save battery.
     const anyFx = battle.a.special || battle.b.special || battle.a.glow > 0.02 || battle.b.glow > 0.02 ||
       flashI > 0.05 || battle.a.guardTimer > 0 || battle.b.guardTimer > 0 || battle.a.mirror > 0 || battle.b.mirror > 0 ||
       (battle.a.boostTimer > 0) || (battle.b.boostTimer > 0) || battle.waves.length || battle.trails.length;
