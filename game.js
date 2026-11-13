@@ -15,42 +15,49 @@ const ARENA = { cx: 0, cy: 0, r: 260 };
 const BEY_R = 16;
 const MATCH_TIME_LIMIT = 60;        // seconds per single game
 
-// --- Combat tuning copied from the reference project (BeyWeb/js/config.js) ---
-// Spin (life) is a 0..1 value. It decays over time; rate depends on stamina stat.
+// --- Combat tuning: SKILL OVER STATS ---------------------------------------
+// Spin (life) is a 0..1 value. Damage per hit comes from HOW the hit lands (impact
+// speed, who drove into whom, base/special timing). Stats only nudge it by a few
+// percent; their real job is to change how a bey moves (speed, mass, endurance).
 const MAX_SPIN_LIFE = 1.0;
 const SPIN_DECAY = 0.038;           // base decay per second
 const STABLE_SPIN = 0.10;           // above this, decay is gentle; below, it speeds up
 const KNOCKBACK_SCALE = 2.2;
 const MIN_KNOCKBACK = 3.0;
-const SPIN_LOSS_SCALE = 0.011;      // closing speed -> spin loss
-const MIN_SPIN_LOSS = 0.003;
-const MAX_SPIN_LOSS = 0.11;         // cap per hit (no one-shot kills)
-const IMPACT_COOLDOWN = 0.08;       // seconds between damaging hits while in contact
-const WALL_SPIN_LOSS_MIN = 0.03;
-const WALL_SPIN_LOSS_MAX = 0.07;
+const HIT_FULL_CLOSING = 260;       // impact speed that deals a full-value hit
+const HIT_MAX = 0.055;              // spin removed by a full-value hit, before modifiers
+const MIN_SPIN_LOSS = 0.004;        // a graze still chips a little
+const MAX_SPIN_LOSS = 0.14;         // cap per collision (no one-shot kills)
+const SMASH = 0.04;                 // bonus for landing a base move
+const SPECIAL_CD_REFUND = 1.6;      // seconds off the special cooldown per landed base hit
+const PARRY_WINDOW = 0.35;          // Draciel: guard raised this close to impact = parry
+const IMPACT_COOLDOWN = 0.22;       // seconds between damaging hits (grinding doesn't stack damage)
+const WALL_SPIN_LOSS_MIN = 0.02;
+const WALL_SPIN_LOSS_MAX = 0.05;
 
-// Convert my 1-10 stats to the reference's 0-100 scale.
 function stat100(v) { return v * 10; }
-// staMult: high stamina -> slower decay (1.5 at sta=0 .. 0.5 at sta=100).
-function staMult(sta) { return 1.5 - stat100(sta) / 100; }
-// Reference-style symmetric multipliers (0.5..1.5): an ATK=100 bey exactly cancels a
-// DEF=100 bey at parity. Defense is a divisor that ramps a bit faster, but NOT so hard
-// that a defender becomes an immovable wall. The type triangle adds the rock-paper-
-// scissors flavor on top; the stats stay clean and fair.
-function atkCombatMult(atk) { return 0.5 + stat100(atk) / 100; }   // 0.5 .. 1.5
-function defMult(def) { return 0.5 + stat100(def) / 100; }          // 0.5 .. 1.5
-function spinDefMult(def) { return 0.5 + stat100(def) / 58; }       // def100 -> ~2.2
-
-// Beyblade-style type triangle: attack > stamina > defense > attack. Returns a damage
-// multiplier for `attackerType` hitting `defenderType` — a soft edge (±25%) so the
-// matchup has rock-paper-scissors flavor without making any fight unwinnable.
-const TYPE_BEATS = { attack: 'stamina', stamina: 'defense', defense: 'attack' };
-function typeAdvantage(attackerType, defenderType) {
-  if (TYPE_BEATS[attackerType] === defenderType) return 1.12;   // slight edge
-  if (TYPE_BEATS[defenderType] === attackerType) return 0.9;    // slight penalty
-  return 1.0; // neutral (incl. balance vs anything, and mirror types)
+// Every stat maps to a small multiplier around 1.0 (stat 5.5 = exactly 1.0).
+function statMod(v, per) { return 1 + (v - 5.5) * per; }
+function atkCombatMult(atk) { return statMod(atk, 0.018); }  // damage dealt   ~0.92..1.08
+function spinDefMult(def) { return statMod(def, 0.018); }    // damage taken / ~0.92..1.08
+function pushMult(atk) { return statMod(atk, 0.045); }       // knockback dealt ~0.80..1.20
+function defMult(def) { return statMod(def, 0.05); }         // knockback resisted ~0.78..1.23
+function staMult(sta) { return statMod(sta, -0.02); }        // natural decay rate ~1.09..0.91
+function steerAccel(f) { return 245 + f.bey.stats.speed * 5; }   // ~250..295
+function maxSpeedOf(f) { return 142 + f.bey.stats.speed * 4; }   // ~146..182
+// Spin removed by a collision at this closing speed (before who-hit-whom and stats).
+function impactLoss(closing) {
+  const t = clamp01(closing / HIT_FULL_CLOSING);
+  return MIN_SPIN_LOSS + HIT_MAX * Math.pow(t, 1.25);
 }
-
+// Stat-scaled damage helper used by moves: amount * attacker attack / defender defense.
+function scaled(att, def, amount) {
+  return amount * atkCombatMult(att.bey.stats.attack) / spinDefMult(def.bey.stats.defense);
+}
+// The type triangle now lives in the mechanics (attackers ring out, defenders parry,
+// stamina outlasts), not in a damage multiplier.
+const TYPE_BEATS = { attack: 'stamina', stamina: 'defense', defense: 'attack' };
+function typeAdvantage() { return 1; }
 
 // ---------------------------------------------------------------
 // Flat placeholder icon art — used only for the small 2D cards
@@ -418,17 +425,20 @@ function initThree() {
     return;
   }
   const canvas = $('arena');
-  renderer3d = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer3d.setPixelRatio(window.devicePixelRatio || 1);
+  renderer3d = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+  // Cap the pixel ratio: full retina (2-3x) multiplies the pixels to shade, and the
+  // move effects + bloom need that headroom to stay smooth on phones.
+  renderer3d.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer3d.shadowMap.enabled = true;
-  renderer3d.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer3d.shadowMap.type = THREE.PCFShadowMap;
 
   scene3d = new THREE.Scene();
   camera3d = new THREE.PerspectiveCamera(40, 360 / 480, 1, 2000);
   camera3d.position.set(0, ARENA.r * 1.85, ARENA.r * 1.55);
   camera3d.lookAt(0, 0, -ARENA.r * 0.18);
 
-  scene3d.add(new THREE.AmbientLight(0xaab4d0, 0.95));
+  const ambient = new THREE.AmbientLight(0xaab4d0, 0.95);
+  scene3d.add(ambient);
   const dir = new THREE.DirectionalLight(0xfff4e2, 1.1);
   dir.position.set(ARENA.r * 0.4, ARENA.r * 1.6, ARENA.r * 0.6);
   dir.castShadow = true;
@@ -446,6 +456,7 @@ function initThree() {
   scene3d.add(rim);
 
   buildStadium();
+  if (window.FX) FX.init(renderer3d, scene3d, camera3d, { ambient, dir, ambientBase: 0.95, dirBase: 1.1 });
 
   resizeRendererToCanvas();
   window.addEventListener('resize', resizeRendererToCanvas);
@@ -547,6 +558,7 @@ function resizeRendererToCanvas() {
   renderer3d.setSize(w, h, false);
   camera3d.aspect = w / h;
   camera3d.updateProjectionMatrix();
+  if (window.FX && FX.ready) FX.resize();
 }
 
 const EMBLEM_FIN_COUNT = { spiral: 3, flame: 3, 'flame-dark': 4, stripes: 3, hex: 6, snowflake: 6, sunburst: 8 };
@@ -709,10 +721,12 @@ function updateMeshFromFighter(mesh, f) {
     f.deathT = null;
   }
 
-  // Spinning normally — tip planted on the floor, no lift.
-  mesh.position.set(f.x, 0, f.y);
+  // Spinning normally — tip on the floor, raised by a dive or a tornado lift.
+  f.liftVis += ((f.liftTarget || 0) - f.liftVis) * 0.12;
+  const yOff = (f.height || 0) + f.liftVis * 24 + (f.liftVis > 0.01 ? Math.sin(performance.now() / 90) * 2 * f.liftVis : 0);
+  mesh.position.set(f.x, yOff, f.y);
   // Wobble ONLY once life drops below 12%, growing with a cubic curve.
-  f.spinYaw = (f.spinYaw || 0) + (3 + f.bey.stats.speed * 0.4) * (1 / 60);
+  if (!(f.frozen > 0)) f.spinYaw = (f.spinYaw || 0) + (3 + f.bey.stats.speed * 0.4) * (1 / 60);
   if (spinPct <= WOBBLE_SPIN_START) {
     if (f.precession == null) f.precession = Math.random() * Math.PI * 2;
     const t = clamp01(1 - spinPct / WOBBLE_SPIN_START);
@@ -720,8 +734,13 @@ function updateMeshFromFighter(mesh, f) {
     f.precession += (0.85 + build * 3.2) * (1 + build * 1.4) * (1 / 60);
     const tiltRad = build * 0.38;
     f.lastWobble = tiltRad;
-    mesh.position.y = tipLift(tiltRad);
+    mesh.position.y = yOff + tipLift(tiltRad);
     applyTopOrientation(mesh, f.spinYaw, f.precession, tiltRad);
+  } else if (f.liftVis > 0.05 || (f.height || 0) > 1) {
+    // Lifted by a tornado or diving: a tilted, precessing spin reads as "in the air".
+    if (f.precession == null) f.precession = 0;
+    f.precession += 6 * (1 / 60);
+    applyTopOrientation(mesh, f.spinYaw, f.precession, 0.32 * Math.max(f.liftVis, f.height > 1 ? 0.6 : 0));
   } else {
     f.precession = null;
     mesh.rotation.set(0, f.spinYaw, 0);
@@ -774,28 +793,55 @@ function updateCamera() {
 }
 
 // ---------------------------------------------------------------
-// Sound — a single collision sound (your uploaded clip), nothing else.
-// Simple HTML Audio, like the first working version.
+// Sound — your hit clip, played through the Web Audio API. Phones block HTML <audio>
+// elements that aren't started by a tap (cloned hit sounds were silently muted);
+// an AudioContext unlocked once by a tap can then play the clip any time.
 // ---------------------------------------------------------------
-const hitAudio = new Audio('hit.mp3');
+let audioCtx = null, hitBuffer = null, audioLoading = false;
+const hitAudio = new Audio('hit.mp3');   // fallback when Web Audio isn't available
 hitAudio.preload = 'auto';
 
-function unlockAudio() {
-  // Some browsers need a play() during a user gesture to allow later playback.
-  // Do it SILENTLY so the unlock tap (e.g. "Battle") doesn't play an audible hit.
-  const prevVol = hitAudio.volume;
-  hitAudio.volume = 0;
-  hitAudio.play().then(() => {
-    hitAudio.pause();
-    hitAudio.currentTime = 0;
-    hitAudio.volume = prevVol;
-  }).catch(() => { hitAudio.volume = prevVol; });
+function loadHitBuffer() {
+  if (!audioCtx || hitBuffer || audioLoading) return;
+  audioLoading = true;
+  fetch('hit.mp3').then((r) => r.arrayBuffer())
+    .then((data) => new Promise((ok, fail) => audioCtx.decodeAudioData(data, ok, fail)))
+    .then((buf) => { hitBuffer = buf; })
+    .catch(() => {})
+    .finally(() => { audioLoading = false; });
 }
-
-function playHitSound() {
+// Call from a tap/click: creates/resumes the audio engine (must happen in a gesture).
+function unlockAudio() {
   try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC && !audioCtx) audioCtx = new AC();
+    if (audioCtx) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      // A one-sample silent buffer started inside the gesture unlocks iOS for good.
+      const b = audioCtx.createBuffer(1, 1, 22050);
+      const s = audioCtx.createBufferSource();
+      s.buffer = b; s.connect(audioCtx.destination); s.start(0);
+      loadHitBuffer();
+    }
+  } catch (e) { /* ignore */ }
+}
+// volume 0..1, rate < 1 = deeper/heavier, > 1 = sharper
+function playHitSound(volume, rate) {
+  const vol = volume == null ? 0.9 : volume;
+  try {
+    if (audioCtx && hitBuffer) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const src = audioCtx.createBufferSource();
+      src.buffer = hitBuffer;
+      src.playbackRate.value = rate || 1;
+      const g = audioCtx.createGain();
+      g.gain.value = vol;
+      src.connect(g); g.connect(audioCtx.destination);
+      src.start(0);
+      return;
+    }
     const a = hitAudio.cloneNode();
-    a.volume = 0.9;
+    a.volume = vol;
     a.play().catch(() => {});
   } catch (e) { /* ignore */ }
 }
@@ -820,14 +866,28 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
   return {
     bey, x, y, vx, vy,
     spin: MAX_SPIN_LIFE,        // life: 1.0 -> 0
-    boostTimer: 0, boostMultiplier: 1,
+    boostTimer: 0, boostMultiplier: 1, boostSource: null,
     // Move slots: each starts needing its full `charge` time before first use,
-    // then `cooldown` after each use. `ready` is derived each frame.
-    baseTimer: bey.moves.base.charge,       // seconds remaining until ready
+    // then `cooldown` after each use.
+    baseTimer: bey.moves.base.charge,
     specialTimer: bey.moves.special.charge,
     out: false, isPlayer, dashTimer: 0,
     fallY: 0, fallVel: 0, ringOutTimer: 0,
-    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, special: null, boostSource: null, guardTimer: 0, baseGlow: 0, shardAmmo: 0
+    spinYaw: 0, precession: null, lastWobble: 0.38, deathT: null, glow: 0, baseGlow: 0,
+    special: null,              // active special-move state
+    input: { x: 0, y: 0 },      // steering intent this frame (player stick/tilt or AI)
+    skill: 0.6,                 // AI skill 0..1 (reaction, aim, timing)
+    // Status effects (seconds remaining unless noted)
+    ctrlLock: 0, stun: 0, slow: 0, frozen: 0, iceSlide: 0,
+    airborne: false, height: 0, anchored: false,
+    steerMul: 1, liftTarget: 0, liftVis: 0, inMaelstrom: false,
+    // Per-bey move state
+    guardTimer: 0, guardAge: 0,                         // Draciel shell
+    mirror: 0, mirrorStore: 0, mirrorStoreT: 0,         // Zeus mirror
+    pounceLeft: 0, pounceWindow: 0,                     // Driger double pounce
+    arc: null,                                          // Dranzer curved dash
+    lungeT: 0, clawBonus: 0,                            // Driger claw lunges
+    aiCd: 0, aiThreatT: 0, dodgeT: 0, dodgeSide: 1, dodgeCool: 0
   };
 }
 
@@ -837,9 +897,6 @@ function beginBattleForMatch(match) {
   const playerIsA = match.a.id === GAME.playerBeyId;
   unlockAudio();
   requestFullscreen();
-  // Make sure sensors are listening, but DON'T recalibrate here — recalibrating every
-  // battle would capture whatever tilt the phone happens to be at and drift control.
-  // Calibration is set once via Start (and the Recalibrate button after a match).
   if (window.matchMedia('(pointer: coarse)').matches) {
     requestTiltPermission();
     startTiltListening();
@@ -847,18 +904,22 @@ function beginBattleForMatch(match) {
   initBattleState(match.a, match.b, playerIsA);
   $('set-score').textContent = `${match.score[match.a.id]} - ${match.score[match.b.id]}`;
   showScreen('battle');
-  // Let the layout settle (fullscreen on mobile landscape), then fit the renderer and
-  // re-center the joystick knob (its container size differs between desktop/mobile).
   requestAnimationFrame(() => { resizeRendererToCanvas(); resetJoystick(); });
   startBattleLoop();
 }
 
-function initBattleState(beyA, beyB, playerIsA) {
+// opts.sim: headless balance simulation (no visuals, no DOM, both sides AI).
+function initBattleState(beyA, beyB, playerIsA, opts) {
+  const sim = !!(opts && opts.sim);
   BATTLE = {
     a: createFighterState(beyA, -ARENA.r * 0.32, -ARENA.r * 0.18, 30, -45, playerIsA),
     b: createFighterState(beyB, ARENA.r * 0.32, ARENA.r * 0.18, -30, 45, !playerIsA),
-    elapsed: 0, ended: false, lastT: 0, rafId: 0, ringOutPending: null, spinOutPending: null, spinOutWinner: null, spinOutTimer: 0, impactCooldown: 0, launchGrace: 1.0, activeSpecial: null, projectiles: []
+    elapsed: 0, ended: false, lastT: 0, rafId: 0, ringOutPending: null, spinOutPending: null,
+    spinOutWinner: null, spinOutTimer: 0, impactCooldown: 0, launchGrace: 1.0,
+    trails: [], waves: [], events: [], sim, result: null, hitStop: 0
   };
+  BATTLE.a.skill = BATTLE.b.skill = AI_SKILL;
+  if (sim) return;
   camLook.ready = false;
   if (camera3d) {
     camera3d.position.set(0, ARENA.r * 1.85, ARENA.r * 1.55);
@@ -871,20 +932,7 @@ function initBattleState(beyA, beyB, playerIsA) {
     meshB = buildBeyMesh(beyB);
     scene3d.add(meshA);
     scene3d.add(meshB);
-    // Per-bey special-move VFX (rebuilt fresh so they match the fighting beys).
-    if (specialVfxA) scene3d.remove(specialVfxA.root);
-    if (specialVfxB) scene3d.remove(specialVfxB.root);
-    specialVfxA = buildSpecialVfx(beyA);
-    specialVfxB = buildSpecialVfx(beyB);
-    scene3d.add(specialVfxA.root);
-    scene3d.add(specialVfxB.root);
-    // Per-bey base-move VFX.
-    if (baseVfxA) scene3d.remove(baseVfxA.root);
-    if (baseVfxB) scene3d.remove(baseVfxB.root);
-    baseVfxA = buildBaseVfx(beyA);
-    baseVfxB = buildBaseVfx(beyB);
-    scene3d.add(baseVfxA.root);
-    scene3d.add(baseVfxB.root);
+    if (window.FX) FX.setupBattle(BATTLE);
   }
   // The left HUD slot ('a' elements) always shows the PLAYER; the right ('b') the rival.
   const playerBey = playerIsA ? beyA : beyB;
@@ -895,8 +943,6 @@ function initBattleState(beyA, beyB, playerIsA) {
   $('hud-stamina-b').style.width = '100%';
   $('hud-pct-a').textContent = '100%';
   $('hud-pct-b').textContent = '100%';
-  const playerFighter = playerIsA ? BATTLE.a : BATTLE.b;
-  // Keep the round-button labels short; the full move name isn't shown anymore.
   $('base-name').textContent = 'Base';
   $('special-name').textContent = 'Special';
   $('base-cooldown').style.setProperty('--cd', 1);
@@ -904,7 +950,6 @@ function initBattleState(beyA, beyB, playerIsA) {
   $('btn-base').disabled = true;
   $('btn-special').disabled = true;
   resetJoystick();
-  // Mobile steers by tilt (via the floating Calibrate button); desktop uses the stick.
   const isTouch = window.matchMedia('(pointer: coarse)').matches;
   $('joystick').style.display = isTouch ? 'none' : 'block';
 }
@@ -912,81 +957,252 @@ function initBattleState(beyA, beyB, playerIsA) {
 let battleRafId = 0;
 let battleGen = 0; // increments each battle; a loop stops if its generation is stale
 function startBattleLoop() {
-  cancelAnimationFrame(battleRafId);   // kill any previous loop, whatever battle it was
-  const myGen = ++battleGen;           // this loop's identity
+  cancelAnimationFrame(battleRafId);
+  const myGen = ++battleGen;
   BATTLE.lastT = performance.now();
   const step = (t) => {
-    if (myGen !== battleGen || !BATTLE || BATTLE.ended) return; // stale or finished
+    if (myGen !== battleGen || !BATTLE || BATTLE.ended) return;
     const dt = Math.min(0.05, (t - BATTLE.lastT) / 1000);
     BATTLE.lastT = t;
-    BATTLE.elapsed += dt;
-    updateBattle(dt);
-    renderBattle();
+    if (BATTLE.hitStop > 0) { BATTLE.hitStop -= dt; renderBattle(dt * 0.15); }
+    else {
+      BATTLE.elapsed += dt;
+      updateBattle(dt);
+      if (!BATTLE.ended) renderBattle(dt);
+    }
     if (myGen === battleGen && !BATTLE.ended) battleRafId = requestAnimationFrame(step);
   };
   battleRafId = requestAnimationFrame(step);
 }
 
-function aiSteer(ai, player, dt) {
-  const dx = player.x - ai.x, dy = player.y - ai.y;
-  const dist = Math.hypot(dx, dy) || 1;
-  const baseForce = 110 + ai.bey.stats.speed * 8;
-  const distFromCenter = Math.hypot(ai.x - ARENA.cx, ai.y - ARENA.cy);
-  let fx = 0, fy = 0;
+// ---------------------------------------------------------------
+// Small helpers shared by moves and AI
+// ---------------------------------------------------------------
+const GAME_VERSION = 'v40'; // shown on the start screen: check it after uploading
+const AI_SKILL = 0.55; // the CPU's skill in normal play (0 = sloppy, 1 = sharp)
+let AI_STYLE_OVERRIDE = null; // testing only: force one movement style for every CPU
+const EVENT_SOUND = { diveHit: [1, 0.6], diveMiss: [0.45, 0.8], bolt: [0.7, 1.35], parry: [1, 1.25], freeze: [0.8, 1.5],
+                      release: [0.9, 0.9], fling: [0.8, 0.75], howlHit: [0.5, 1.4], wall: [0.35, 1.1], absorb: [0.5, 1.6] };
+function emit(type, data) {
+  if (!BATTLE || BATTLE.sim) return;
+  BATTLE.events.push(Object.assign({ type }, data));
+  const snd = EVENT_SOUND[type];
+  if (snd) playHitSound(snd[0], snd[1]);
+  if (type === 'diveHit') BATTLE.hitStop = 0.09;   // a beat of freeze-frame so the hit reads
+}
+function foeOf(f) { return f === BATTLE.a ? BATTLE.b : BATTLE.a; }
+function distOf(p, q) { return Math.hypot(q.x - p.x, q.y - p.y); }
+function aimDir(f, o, err) {
+  const ang = Math.atan2(o.y - f.y, o.x - f.x) + (err || 0);
+  return { x: Math.cos(ang), y: Math.sin(ang), ang };
+}
+function gauss() { return Math.sqrt(-2 * Math.log(Math.random() + 1e-9)) * Math.cos(2 * Math.PI * Math.random()); }
+function angleDiff(a, b) { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; }
+// Direction from a point toward the nearest KO pocket (used for flings).
+function pocketDir(p) {
+  let best = null, bestD = Infinity;
+  for (const pa of POCKET_ANGLES) {
+    const px = Math.cos(pa) * ARENA.r, py = Math.sin(pa) * ARENA.r;
+    const d = Math.hypot(px - p.x, py - p.y);
+    if (d < bestD) { bestD = d; best = { x: (px - p.x) / d, y: (py - p.y) / d }; }
+  }
+  return best;
+}
+function canAct(f) {
+  return BATTLE && !f.out && f.spin > 0 && !f.airborne && !(f.frozen > 0) && !(f.stun > 0) &&
+    !BATTLE.spinOutPending && BATTLE.launchGrace <= 0;
+}
+// All move/collision damage goes through here. Zeus's Dark Dimension turns damage aimed
+// at Zeus back on its attacker.
+function dealDamage(from, to, amount, kind) {
+  if (!(amount > 0) || BATTLE.spinOutPending || to.out) return 0;
+  if (to.special && to.special.kind === 'dimension' && to.special.t > 0.2 && from && from !== to) {
+    // Dark Dimension: half the hit turns back on the attacker, Zeus keeps the rest.
+    const back = amount * 0.5;
+    from.spin = Math.max(0, from.spin - back);
+    emit('reflect', { x: to.x, y: to.y, amount: back });
+    if (BATTLE.dmgLog) { logDmg(to, 'reflect', back); logDmg(from, 'TAKEN', back); }
+    amount *= 0.5;
+    to.spin = Math.max(0, to.spin - amount);
+    if (BATTLE.dmgLog) logDmg(to, 'TAKEN', amount);
+    return amount;
+  }
+  to.spin = Math.max(0, to.spin - amount);
+  if (BATTLE.dmgLog && from) { logDmg(from, kind, amount); logDmg(to, 'TAKEN', amount); }
+  return amount;
+}
+function logDmg(f, kind, amount) {
+  const L = BATTLE.dmgLog, k = f.bey.id;
+  L[k] = L[k] || {}; L[k][kind] = (L[k][kind] || 0) + amount;
+}
+function dash(f, dir, speed, power, dur) {
+  f.vx += dir.x * speed;
+  f.vy += dir.y * speed;
+  f.boostTimer = dur || f.bey.moves.base.duration;
+  f.boostMultiplier = power;
+  f.boostSource = 'base';
+}
 
-  switch (ai.bey.type) {
-    case 'attack':
-      // Aggressive: chase the opponent and periodically dash in to ram.
-      fx = (dx / dist) * baseForce * 1.25;
-      fy = (dy / dist) * baseForce * 1.25;
-      ai.dashTimer -= dt;
-      if (ai.dashTimer <= 0 && distFromCenter < ARENA.r * 0.7) {
-        ai.vx += (dx / dist) * 130;
-        ai.vy += (dy / dist) * 130;
-        ai.dashTimer = 1.4 + Math.random() * 0.8;
+// ---------------------------------------------------------------
+// CPU: steering intent (personality + dodging) and move use, both skill-driven.
+// ---------------------------------------------------------------
+function aiIntent(f, o, dt) {
+  const sk = f.skill;
+  const dx = o.x - f.x, dy = o.y - f.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const dc = Math.hypot(f.x - ARENA.cx, f.y - ARENA.cy) || 1;
+  let ix = 0, iy = 0;
+  const own = f.special;
+  if (own && (own.kind === 'tornado' || own.kind === 'blizzard' || own.kind === 'claw')) {
+    ix = dx / d; iy = dy / d;                      // drag the effect onto the rival
+  } else {
+    switch (AI_STYLE_OVERRIDE || f.bey.type) {
+      case 'attack': ix = dx / d; iy = dy / d; break;
+      case 'defense': {
+        ix = -(f.x - ARENA.cx) / dc * Math.min(1, dc / (ARENA.r * 0.3));
+        iy = -(f.y - ARENA.cy) / dc * Math.min(1, dc / (ARENA.r * 0.3));
+        if (d < 110) { ix += dx / d * 0.5; iy += dy / d * 0.5; }
+        break;
       }
-      break;
-    case 'defense': {
-      // Holds the center like a wall; only lunges to counter when the foe is close.
-      const toC = distFromCenter || 1;
-      fx += -((ai.x - ARENA.cx) / toC) * 55;
-      fy += -((ai.y - ARENA.cy) / toC) * 55;
-      if (dist < 100) { fx += (dx / dist) * baseForce * 0.5; fy += (dy / dist) * baseForce * 0.5; }
-      break;
-    }
-    case 'stamina': {
-      // Conserves energy: stays calm near the CENTER and avoids clashes (it wins by
-      // outlasting, not by moving). Gentle drift away from the opponent if very close.
-      const toC = distFromCenter || 1;
-      // Pull toward a small radius around center.
-      const targetR = ARENA.r * 0.2;
-      const pull = (distFromCenter - targetR);
-      fx += -((ai.x - ARENA.cx) / toC) * pull * 0.5;
-      fy += -((ai.y - ARENA.cy) / toC) * pull * 0.5;
-      if (dist < 80) { fx -= (dx / dist) * baseForce * 0.4; fy -= (dy / dist) * baseForce * 0.4; } // edge away
-      break;
-    }
-    default: { // balance — moderate chaser that repositions
-      fx = (dx / dist) * baseForce * 0.8;
-      fy = (dy / dist) * baseForce * 0.8;
+      case 'stamina': {
+        const pull = (dc - ARENA.r * 0.2) / (ARENA.r * 0.3);
+        ix = -(f.x - ARENA.cx) / dc * pull; iy = -(f.y - ARENA.cy) / dc * pull;
+        if (d < 85) { ix -= dx / d * 0.45; iy -= dy / d * 0.45; }
+        break;
+      }
+      default: ix = dx / d * 0.95; iy = dy / d * 0.95;
     }
   }
-
-  // Wall avoidance (ALL types): a strong inward push that ramps up near the rim so the
-  // AI never rings itself out. This is what was sending Wolborg off the edge.
-  const rimStart = ARENA.r * 0.7;
-  if (distFromCenter > rimStart) {
-    const toC = distFromCenter || 1;
-    const over = (distFromCenter - rimStart) / (ARENA.r - rimStart); // 0..1+
-    const inward = 90 + over * 320; // grows hard toward the wall
-    fx += -((ai.x - ARENA.cx) / toC) * inward;
-    fy += -((ai.y - ARENA.cy) / toC) * inward;
+  // Read the rival's charge: side-step when it drives straight at us (dash or plain
+  // rush), so we are the one hitting it from the side. Sharper CPUs do it more.
+  {
+    const rApp = (o.vx * (f.x - o.x) + o.vy * (f.y - o.y)) / d;     // rival speed toward us
+    const mine = (f.vx * dx + f.vy * dy) / d;                     // our speed toward it
+    const boosted = o.boostTimer > 0 && !o.special;
+    if (f.dodgeT <= 0 && f.dodgeCool <= 0 && d < (boosted ? 170 : 105) && rApp > (boosted ? 60 : 85) && rApp > mine * 0.8) {
+      if (Math.random() < (boosted ? 0.85 : 0.6) * sk) {
+        f.dodgeT = boosted ? 0.28 : 0.2;
+        // pick the perpendicular that points toward the center
+        const cx = -(f.x - ARENA.cx), cy = -(f.y - ARENA.cy);
+        f.dodgeSide = ((-dy / d) * cx + (dx / d) * cy) >= 0 ? 1 : -1;
+      }
+      f.dodgeCool = 0.5;
+    }
+    if (f.dodgeCool > 0) f.dodgeCool -= dt;
   }
+  if (f.dodgeT > 0) {
+    f.dodgeT -= dt;
+    const tx = -dy / d * f.dodgeSide, ty = dx / d * f.dodgeSide;
+    ix = ix * 0.15 + tx * 1.6; iy = iy * 0.15 + ty * 1.6;
+  }
+  // Respect the rival's defenses: wait out a raised shell or an active mirror.
+  if ((o.guardTimer > 0 || o.mirror > 0) && d < 140 && Math.random() < sk) {
+    const tx = -dy / d, ty = dx / d;              // circle instead of ramming
+    ix = ix * 0.2 + tx * 0.7 - dx / d * 0.3; iy = iy * 0.2 + ty * 0.7 - dy / d * 0.3;
+  }
+  // Dodge the rival's specials, after a skill-based reaction delay.
+  const rs = o.special;
+  const react = 0.12 + (1 - sk) * 0.45;
+  const away = (px, py, w) => {
+    const ax = f.x - px, ay = f.y - py, ad = Math.hypot(ax, ay) || 1;
+    ix += ax / ad * w; iy += ay / ad * w;
+  };
+  if (rs && rs.t > react) {
+    if (rs.kind === 'tornado' && Math.hypot(f.x - rs.x, f.y - rs.y) < rs.R * 1.3) away(rs.x, rs.y, 1.4 * sk);
+    if (rs.kind === 'dive' && Math.hypot(f.x - rs.tx, f.y - rs.ty) < 90) {
+      if (rs.phase === 'aim') away(rs.tx, rs.ty, 1.0 * sk);
+      if ((rs.phase === 'lock' && rs.pt > react * 0.7) || rs.phase === 'dive') away(rs.tx, rs.ty, 2.2 * sk);
+    }
+    if (rs.kind === 'maelstrom' && d < rs.R * 1.3) away(o.x, o.y, 1.3 * sk);
+    if (rs.kind === 'eclipse' && d < rs.R * 1.4) away(o.x, o.y, 1.1 * sk);
+    if (rs.kind === 'dimension') {
+      if (d < 170) { ix *= (1 - sk); iy *= (1 - sk); away(o.x, o.y, 1.2 * sk); }
+      for (const b of rs.bolts) if (!b.struck && b.t > react * 0.6 && Math.hypot(f.x - b.x, f.y - b.y) < 46) away(b.x, b.y, 1.7 * sk);
+    }
+    if (rs.kind === 'blizzard' && d < 120) away(o.x, o.y, 0.8 * sk);
+  }
+  // Never drive into the wall.
+  const rimStart = ARENA.r * 0.68;
+  if (dc > rimStart) {
+    const over = (dc - rimStart) / (ARENA.r - rimStart);
+    ix -= (f.x - ARENA.cx) / dc * (0.35 + over * 1.4);
+    iy -= (f.y - ARENA.cy) / dc * (0.35 + over * 1.4);
+  }
+  ix += (Math.random() - 0.5) * (0.1 + (1 - sk) * 0.3);
+  iy += (Math.random() - 0.5) * (0.1 + (1 - sk) * 0.3);
+  const m = Math.hypot(ix, iy);
+  if (m > 1) { ix /= m; iy /= m; }
+  return { x: ix, y: iy };
+}
 
-  fx += (Math.random() - 0.5) * 24;
-  fy += (Math.random() - 0.5) * 24;
-  ai.vx += fx * dt;
-  ai.vy += fy * dt;
+function aiMoves(f, o, dt) {
+  if (!canAct(f)) return;
+  f.aiCd -= dt;
+  if (f.aiCd > 0) return;
+  const sk = f.skill;
+  f.aiCd = 0.07 + (1 - sk) * 0.2;            // think rate: sharper CPUs decide more often
+  const d = distOf(f, o);
+  const id = f.bey.id;
+  // Aim error, plus a skill-scaled lead toward where the rival is heading.
+  const tLead = d / 260;
+  const px = o.x + o.vx * tLead * sk, py = o.y + o.vy * tLead * sk;
+  const leadOff = angleDiff(Math.atan2(py - f.y, px - f.x), Math.atan2(o.y - f.y, o.x - f.x));
+  const err = leadOff + gauss() * (0.03 + (1 - sk) * 0.32);
+  // Time until contact if the rival keeps coming (for guard/mirror timing).
+  const nx = (f.x - o.x) / (d || 1), ny = (f.y - o.y) / (d || 1);
+  const approach = (o.vx - f.vx) * nx + (o.vy - f.vy) * ny;  // >0: closing in
+  const tti = approach > 30 ? (d - BEY_R * 2) / approach : Infinity;
+
+  const inDim = !!(o.special && o.special.kind === 'dimension');
+  if (f.specialTimer <= 0 && !f.special) {
+    const want = { dragoon: d < 100, dranzer: d < 320, blackdranzer: d < 105, driger: d < 140,
+                   draciel: d < 150, wolborg: d < 170, zeus: d < 140 }[id];
+    const holdOff = inDim && id !== 'draciel' && id !== 'wolborg' && Math.random() < sk;
+    if (want && !holdOff && Math.random() < 0.35 + 0.55 * sk) { triggerSpecialMove(f, o); return; }
+  }
+  if (id === 'driger' && f.pounceLeft > 0) {
+    if (f.pounceWindow < 0.62 && Math.random() < 0.5 + 0.4 * sk) triggerBaseMove(f, o, err);
+    return;
+  }
+  if (f.baseTimer > 0) return;
+  const walled = (o.guardTimer > 0 || o.mirror > 0 || inDim) && Math.random() < 0.3 + 0.7 * sk;
+  switch (id) {
+    case 'draciel': {
+      // A sharp CPU raises the shell right before impact (parry); a sloppy one too early.
+      const lead = 0.18 + (1 - sk) * 0.45;
+      if (tti < lead && Math.random() < 0.45 + 0.5 * sk) triggerBaseMove(f, o, 0);
+      break;
+    }
+    case 'zeus':
+      if (f.mirrorStore > 0) { if (!walled && d < 170 && Math.random() < 0.5 + 0.4 * sk) triggerBaseMove(f, o, err); }
+      else if ((tti < 0.25 + (1 - sk) * 0.4 || d < 120) && Math.random() < 0.4 + 0.5 * sk) triggerBaseMove(f, o, 0);
+      break;
+    case 'wolborg':
+      if (!walled && d < 150 && Math.random() < 0.3 + 0.5 * sk) triggerBaseMove(f, o, err);
+      break;
+    default:
+      if (!walled && d < 190 && d > 36 && Math.random() < 0.25 + 0.5 * sk) triggerBaseMove(f, o, err);
+  }
+}
+
+// Apply a steering intent to a fighter, respecting its status effects.
+function applySteer(f, v, dt) {
+  if (f.out || f.spin <= 0) return;
+  if (f.airborne) {
+    // Dranzer's dive: while aiming, the stick moves the target reticle, not the bey.
+    const s = f.special;
+    if (s && s.kind === 'dive' && s.phase === 'aim' && (f.isPlayer && !BATTLE.sim)) {
+      s.tx += v.x * 330 * dt; s.ty += v.y * 330 * dt;
+    }
+    return;
+  }
+  if (f.frozen > 0 || f.stun > 0 || f.ctrlLock > 0 || f.anchored) return;
+  let mul = f.steerMul;
+  if (f.slow > 0) mul *= 0.6;
+  if (f.iceSlide > 0) mul *= 0.4;
+  const acc = steerAccel(f) * mul;
+  f.vx += v.x * acc * dt;
+  f.vy += v.y * acc * dt;
 }
 
 function updateBattle(dt) {
@@ -995,78 +1211,117 @@ function updateBattle(dt) {
   const ai = a.isPlayer ? b : a;
 
   if (BATTLE.impactCooldown > 0) BATTLE.impactCooldown = Math.max(0, BATTLE.impactCooldown - dt);
-
   const inGrace = BATTLE.launchGrace > 0;
   if (inGrace) BATTLE.launchGrace = Math.max(0, BATTLE.launchGrace - dt);
 
   if (!inGrace) {
-    if (tiltEnabled) updateTiltVector(); // refresh smoothed tilt each frame
-    const inputVec = tiltEnabled ? tiltVector : joystickVector;
-    player.vx += inputVec.x * 260 * dt;
-    player.vy += inputVec.y * 260 * dt;
-    aiSteer(ai, player, dt);
+    if (!BATTLE.sim && tiltEnabled) updateTiltVector();
+    const pv = BATTLE.sim ? aiIntent(player, ai, dt) : (tiltEnabled ? tiltVector : joystickVector);
+    player.input = { x: pv.x, y: pv.y };
+    ai.input = aiIntent(ai, player, dt);
+    applySteer(player, player.input, dt);
+    applySteer(ai, ai.input, dt);
   }
 
   [a, b].forEach((f) => {
-    if (f.out) return; // already knocked out; handled by fall animation below
-    const maxSpeed = 90 + f.bey.stats.speed * 10;
+    if (f.out) return;
+    // Status timers
+    if (f.ctrlLock > 0) f.ctrlLock = Math.max(0, f.ctrlLock - dt);
+    if (f.stun > 0) f.stun = Math.max(0, f.stun - dt);
+    if (f.slow > 0) f.slow = Math.max(0, f.slow - dt);
+    if (f.frozen > 0) f.frozen = Math.max(0, f.frozen - dt);
+    if (f.iceSlide > 0) f.iceSlide = Math.max(0, f.iceSlide - dt);
+    if (f.guardTimer > 0) { f.guardTimer = Math.max(0, f.guardTimer - dt); f.guardAge += dt; }
+    if (f.mirror > 0) {
+      f.mirror = Math.max(0, f.mirror - dt);
+      if (f.mirror === 0 && f.mirrorStore <= 0) {   // nothing absorbed: arm a plain release
+        f.mirrorStore = 0.001; f.mirrorStoreT = 4;
+        f.baseTimer = Math.min(f.baseTimer, 0.35);
+      }
+    }
+    if (f.mirrorStoreT > 0) { f.mirrorStoreT -= dt; if (f.mirrorStoreT <= 0) f.mirrorStore = 0; }
+    if (f.pounceLeft > 0) {
+      f.pounceWindow -= dt;
+      if (f.pounceWindow <= 0) { f.pounceLeft = 0; f.baseTimer = f.bey.moves.base.cooldown - 0.9; }
+    }
+    if (f.boostTimer > 0) {
+      f.boostTimer = Math.max(0, f.boostTimer - dt);
+      if (f.boostTimer === 0 && f.darkClawPending) {   // Dark Claw whiffed: pay for it
+        f.darkClawPending = false;
+        f.spin = Math.max(0.01, f.spin - 0.03);
+        emit('clawMiss', { x: f.x, y: f.y });
+      }
+    }
+    if (!inGrace) {
+      // Natural spin decay: gentle above STABLE_SPIN, faster below; stamina trims it.
+      const m = staMult(f.bey.stats.stamina);
+      const rate = f.spin > STABLE_SPIN ? SPIN_DECAY * 0.5 * m : SPIN_DECAY * 2.4 * m;
+      f.spin = Math.max(0, f.spin - rate * dt);
+      if (BATTLE.dmgLog) logDmg(f, 'DECAY', rate * dt);
+      if (f.baseTimer > 0) f.baseTimer = Math.max(0, f.baseTimer - dt);
+      if (f.specialTimer > 0 && !f.special) f.specialTimer = Math.max(0, f.specialTimer - dt);
+    }
+    if (f.airborne) { f.vx = 0; f.vy = 0; return; }   // hovering over the bowl
+
+    // Dranzer's curved dash: bend toward the point it was aimed at.
+    if (f.arc) {
+      f.arc.t -= dt;
+      const ax = f.arc.tx - f.x, ay = f.arc.ty - f.y, ad = Math.hypot(ax, ay) || 1;
+      f.vx += ax / ad * 1100 * dt; f.vy += ay / ad * 1100 * dt;
+      if (f.arc.t <= 0) f.arc = null;
+    }
+    // Driger's claw lunge homes in briefly.
+    if (f.lungeT > 0) {
+      f.lungeT -= dt;
+      const o = foeOf(f);
+      const ax = o.x - f.x, ay = o.y - f.y, ad = Math.hypot(ax, ay) || 1;
+      f.vx += ax / ad * 450 * dt; f.vy += ay / ad * 450 * dt;
+    }
+    if (f.frozen > 0 || f.anchored) { const k = Math.max(0, 1 - 12 * dt); f.vx *= k; f.vy *= k; }
+
+    let maxSpeed = maxSpeedOf(f) * (f.slow > 0 ? 0.65 : 1) * (f.inMaelstrom ? 0.7 : 1);
+    if (f.boostTimer > 0 || f.ctrlLock > 0) maxSpeed = Math.max(maxSpeed, 430); // dashes/flings may exceed it
     const sp = Math.hypot(f.vx, f.vy);
     if (sp > maxSpeed) { f.vx = (f.vx / sp) * maxSpeed; f.vy = (f.vy / sp) * maxSpeed; }
-    const drag = 1 - (0.55 - f.bey.stats.stamina * 0.03) * dt;
+    let dragK = 0.42 - (f.bey.stats.stamina - 5.5) * 0.012;
+    if (f.iceSlide > 0) dragK *= 0.15;
+    const drag = 1 - dragK * dt;
     f.vx *= Math.max(0, drag);
     f.vy *= Math.max(0, drag);
     f.x += f.vx * dt;
     f.y += f.vy * dt;
-    if (!inGrace) {
-      // Spin decay (reference formula): gentle above STABLE_SPIN, 2.4x faster below,
-      // scaled by stamina stat. A high-stamina bey lasts much longer.
-      const m = staMult(f.bey.stats.stamina);
-      const rate = f.spin > STABLE_SPIN ? SPIN_DECAY * 0.5 * m : SPIN_DECAY * 2.4 * m;
-      f.spin = Math.max(0, f.spin - rate * dt);
-      // Move charge / cooldown timers tick down only after the launch grace.
-      if (f.baseTimer > 0) f.baseTimer = Math.max(0, f.baseTimer - dt);
-      if (f.specialTimer > 0) f.specialTimer = Math.max(0, f.specialTimer - dt);
-    }
-    if (f.boostTimer > 0) f.boostTimer = Math.max(0, f.boostTimer - dt);
-    if (f.guardTimer > 0) f.guardTimer = Math.max(0, f.guardTimer - dt);
 
     const d = Math.hypot(f.x - ARENA.cx, f.y - ARENA.cy) || 0.0001;
     const nx = (f.x - ARENA.cx) / d, ny = (f.y - ARENA.cy) / d;
     const angle = Math.atan2(f.y - ARENA.cy, f.x - ARENA.cx);
     const wallContact = ARENA.r - BEY_R;
-    const pocketExitR = ARENA.r + BEY_R * 0.5; // center must clear this to fall out
+    const pocketExitR = ARENA.r + BEY_R * 0.5;
     const inPocket = isAtPocketAngle(angle);
-
     if (d > wallContact) {
       if (inPocket && !inGrace) {
-        // Pocket gap: only a light rim graze; the bey can keep sliding outward.
         if (d > pocketExitR) {
           f.out = true;
           f.fallVel = 0;
           f.ringOutTimer = 0;
           BATTLE.ringOutPending = f;
+          if (f.special) endSpecial(f);
         }
       } else {
-        // Solid wall (or any wall during launch grace) — clamp to the wall face and
-        // bounce inward. Applies on EVERY frame past the contact line, so a bey can
-        // never tunnel through a wall.
         f.x = ARENA.cx + nx * wallContact;
         f.y = ARENA.cy + ny * wallContact;
         const vDotN = f.vx * nx + f.vy * ny;
         if (vDotN > 0) {
           f.vx -= 1.8 * vDotN * nx;
           f.vy -= 1.8 * vDotN * ny;
-          // Wall impact costs spin, scaled to how hard it hit (reference range).
           const speed = Math.hypot(f.vx, f.vy);
-          const loss = WALL_SPIN_LOSS_MIN + clamp01(speed / 180) * (WALL_SPIN_LOSS_MAX - WALL_SPIN_LOSS_MIN);
-          f.spin = Math.max(0, f.spin - loss);
+          const loss = WALL_SPIN_LOSS_MIN + clamp01(speed / 220) * (WALL_SPIN_LOSS_MAX - WALL_SPIN_LOSS_MIN);
+          if (!BATTLE.spinOutPending) { f.spin = Math.max(0, f.spin - loss); if (BATTLE.dmgLog) logDmg(f, 'WALL', loss); }
+          if (speed > 90) emit('wall', { x: f.x, y: f.y, power: loss });
         }
       }
     }
   });
 
-  // Brief slide-out for a knocked-out bey so the exit reads clearly, then resolve.
-  // No void-fall: the bey just leaves the stadium floor and the game ends.
   [a, b].forEach((f) => {
     if (!f.out) return;
     f.ringOutTimer += dt;
@@ -1077,104 +1332,50 @@ function updateBattle(dt) {
   const cdx = b.x - a.x, cdy = b.y - a.y;
   const cdist = Math.hypot(cdx, cdy);
   if (!a.out && !b.out && cdist < BEY_R * 2 && cdist > 0.001) {
-    // During the post-KO death beat, still collide physically (real bounce) but deal
-    // no damage. Otherwise, a normal damaging collision.
     resolveCollision(a, b, cdx, cdy, cdist, !!BATTLE.spinOutPending);
   }
 
-  // Ice-shard projectiles (Wolborg's base move): fly straight along the aimed line and
-  // can hit or miss, just like a dash. A hit deals base-hit-style damage + the special
-  // cooldown refund; Draciel's raised shell blocks them like any base-move damage.
-  if (BATTLE.projectiles.length) {
-    for (const p of BATTLE.projectiles) {
-      p.x += p.vx * dt; p.y += p.vy * dt;
-      p.life -= dt;
-      const target = p.owner === a ? b : a;
-      if (!p.hit && !target.out && Math.hypot(p.x - target.x, p.y - target.y) < BEY_R * 1.3) {
-        p.hit = true; p.life = Math.min(p.life, 0.04);
-        if (!BATTLE.spinOutPending && target.guardTimer <= 0) {
-          const ow = p.owner;
-          // Each shard is worth roughly a THIRD of a base hit: the full clip landed
-          // equals one solid base hit, not a multiplied volley.
-          const dmg = Math.min(0.05, 0.05 * atkCombatMult(ow.bey.stats.attack) * typeAdvantage(ow.bey.type, target.bey.type) / spinDefMult(target.bey.stats.defense));
-          target.spin = Math.max(0, target.spin - dmg);
-          // Refund distributed too: 3 shard hits ≈ the standard 1.6s base-hit refund.
-          if (ow.specialTimer > 0) ow.specialTimer = Math.max(0, ow.specialTimer - 0.55);
-          playHitSound();
-        }
-      }
-      // Fizzle on the arena wall.
-      if (Math.hypot(p.x - ARENA.cx, p.y - ARENA.cy) > ARENA.r - 4) p.life = Math.min(p.life, 0.04);
-    }
-    BATTLE.projectiles = BATTLE.projectiles.filter((p) => p.life > 0);
+  updateTrails(dt);
+  updateWaves(dt);
+
+  // Specials: reset per-frame influences, then step both.
+  [a, b].forEach((f) => { f.steerMul = 1; f.liftTarget = 0; f.inMaelstrom = false; });
+  if (!BATTLE.spinOutPending) { stepSpecial(a, dt); stepSpecial(b, dt); }
+
+  if (!inGrace && !BATTLE.spinOutPending) {
+    if (BATTLE.sim) aiMoves(player, ai, dt);
+    aiMoves(ai, player, dt);
   }
 
-  // HUD: spin as a percentage. Left slot ('a' ids) = player, right slot ('b') = rival.
-  const playerF = a.isPlayer ? a : b;
-  const rivalF = a.isPlayer ? b : a;
-  const pPct = Math.round(playerF.spin * 100), rPct = Math.round(rivalF.spin * 100);
-  $('hud-stamina-a').style.width = pPct + '%';
-  $('hud-stamina-b').style.width = rPct + '%';
-  $('hud-pct-a').textContent = pPct + '%';
-  $('hud-pct-b').textContent = rPct + '%';
-
-  // Move readiness: ready when the timer hits 0. The conic overlay (--cd) shows the
-  // remaining cooldown as a shrinking dark wedge (0 = ready, 1 = just used).
-  const baseReady = player.baseTimer <= 0;
-  const specialReady = player.specialTimer <= 0;
-  const baseDen = Math.max(player.bey.moves.base.charge, player.bey.moves.base.cooldown);
-  const specialDen = Math.max(player.bey.moves.special.charge, player.bey.moves.special.cooldown);
-  $('base-cooldown').style.setProperty('--cd', clamp01(player.baseTimer / baseDen));
-  $('btn-base').disabled = !baseReady;
-  $('special-cooldown').style.setProperty('--cd', clamp01(player.specialTimer / specialDen));
-  $('btn-special').disabled = !specialReady;
-
-  // AI fires moves when ready (prefers special). Frozen once a spin-out is locked.
-  if (!BATTLE.spinOutPending) {
-    if (ai.specialTimer <= 0 && Math.random() < 0.9 * dt * 2) triggerSpecialMove(ai, player);
-    else if (ai.baseTimer <= 0 && Math.random() < 1.2 * dt * 2) triggerBaseMove(ai, player);
-    updateActiveSpecial(dt);
-  }
+  if (!BATTLE.sim) updateBattleHud(player);
+  if (BATTLE.sim) BATTLE.events.length = 0;
 
   // Ring-out: a short readable beat after the bey leaves, then resolve the game.
   if (BATTLE.ringOutPending) {
     if (BATTLE.ringOutPending.ringOutTimer > 0.5) {
       const loser = BATTLE.ringOutPending;
-      const winner = loser === a ? b : a;
-      endBattle(winner, loser, 'ringout');
+      endBattle(loser === a ? b : a, loser, 'ringout');
     }
     return;
   }
-  // Spin-out: the moment a bey reaches 0 spin, decide the winner IMMEDIATELY and lock
-  // it. The loser is whoever hit 0 first; if (rarely) both are 0 on the same frame, the
-  // one with the higher attack/closing edge is treated as winner by spin tiebreak. The
-  // death animation still plays, but no further damage is applied to either bey, so the
-  // result can't flip to a double-KO.
+  // Spin-out: decide the winner the moment a bey hits 0 and lock it.
   if (!BATTLE.spinOutPending) {
     let loser = null;
-    if (a.spin <= 0 && b.spin <= 0) loser = (a.spin <= b.spin) ? a : b; // both: lower spin loses
+    if (a.spin <= 0 && b.spin <= 0) loser = (a.spin <= b.spin) ? a : b;
     else if (a.spin <= 0) loser = a;
     else if (b.spin <= 0) loser = b;
     if (loser) {
       BATTLE.spinOutPending = loser;
       BATTLE.spinOutWinner = (loser === a) ? b : a;
       BATTLE.spinOutTimer = 0;
-      a.special = null; b.special = null; // cancel any in-flight specials (also ends glow)
+      endSpecial(a); endSpecial(b);
     }
   }
   if (BATTLE.spinOutPending) {
     const loser = BATTLE.spinOutPending;
-    const winner = BATTLE.spinOutWinner;
-    // The winner is LOCKED. During the death beat it keeps losing a little spin to
-    // natural decay (exhaustion) — handled by the normal decay above — but takes NO
-    // collision damage from the loser, so the outcome can never flip to a double-KO.
-    // (Collisions are already disabled while spinOutPending is set.) If the winner's
-    // own decay reaches 0 here, it still wins, because the result is already decided.
     BATTLE.spinOutTimer += dt;
-    loser.vx *= 0.9; loser.vy *= 0.9; // skid to a halt
-    if (BATTLE.spinOutTimer > 1.2) {
-      endBattle(winner, loser, 'spinout');
-    }
+    loser.vx *= 0.9; loser.vy *= 0.9;
+    if (BATTLE.spinOutTimer > 1.2) endBattle(BATTLE.spinOutWinner, loser, 'spinout');
     return;
   }
   if (BATTLE.elapsed > MATCH_TIME_LIMIT) {
@@ -1183,836 +1384,536 @@ function updateBattle(dt) {
   }
 }
 
+// HUD: spin bars and button cooldowns.
+function updateBattleHud(player) {
+  const { a, b } = BATTLE;
+  const rival = player === a ? b : a;
+  const pPct = Math.round(player.spin * 100), rPct = Math.round(rival.spin * 100);
+  $('hud-stamina-a').style.width = pPct + '%';
+  $('hud-stamina-b').style.width = rPct + '%';
+  $('hud-pct-a').textContent = pPct + '%';
+  $('hud-pct-b').textContent = rPct + '%';
+  const s = player.special;
+  const pounce = player.pounceLeft > 0;
+  const clawOpen = !!(s && s.kind === 'claw' && s.count < 3);
+  const baseReady = (player.baseTimer <= 0 || pounce) && canAct(player);
+  const specialReady = (player.specialTimer <= 0 && !player.special && canAct(player)) || clawOpen;
+  const baseDen = Math.max(player.bey.moves.base.charge, player.bey.moves.base.cooldown);
+  const specialDen = Math.max(player.bey.moves.special.charge, player.bey.moves.special.cooldown);
+  $('base-cooldown').style.setProperty('--cd', pounce ? 0 : clamp01(player.baseTimer / baseDen));
+  $('btn-base').disabled = !baseReady;
+  $('special-cooldown').style.setProperty('--cd', (player.special || clawOpen) ? (clawOpen ? 0 : 1) : clamp01(player.specialTimer / specialDen));
+  $('btn-special').disabled = !specialReady;
+}
+
 function resolveCollision(a, b, dx, dy, dist, noDamage) {
-  const nx = dx / dist, ny = dy / dist;
-  // Reduced-mass-style sharing based on defense (heavier/defensive beys move less).
-  const massA = stat100(a.bey.stats.defense) + 40, massB = stat100(b.bey.stats.defense) + 40;
+  if (a.airborne || b.airborne) return;
+  const nx = dx / dist, ny = dy / dist;         // normal from a toward b
+  const heavyA = a.anchored || a.frozen > 0, heavyB = b.anchored || b.frozen > 0;
+  let massA = stat100(a.bey.stats.defense) + 40, massB = stat100(b.bey.stats.defense) + 40;
+  if (heavyA) massA *= 25;
+  if (heavyB) massB *= 25;
   const shareA = massB / (massA + massB), shareB = massA / (massA + massB);
   const overlap = BEY_R * 2 - dist;
-
-  // Always separate so the discs never visually overlap.
   a.x -= nx * overlap * shareA; a.y -= ny * overlap * shareA;
   b.x += nx * overlap * shareB; b.y += ny * overlap * shareB;
 
-  // Closing speed = how fast they move INTO each other along the contact normal.
+  // Who drove into whom (measured BEFORE the bounce changes the velocities).
+  const aIn = Math.max(0, a.vx * nx + a.vy * ny);
+  const bIn = Math.max(0, -(b.vx * nx + b.vy * ny));
   const relVx = a.vx - b.vx, relVy = a.vy - b.vy;
-  const closing = Math.max(0, -(relVx * nx + relVy * ny));
+  const closing = Math.max(0, relVx * nx + relVy * ny);   // speed at which they meet
 
-  // Knockback impulse (reference: closingSpeed * KNOCKBACK_SCALE, min MIN_KNOCKBACK),
-  // modulated by attacker's attack and defender's defense.
+  // Knockback (positional game): attack pushes, defense resists.
   const baseImpulse = Math.max(MIN_KNOCKBACK, closing * KNOCKBACK_SCALE);
   const boostA = a.boostTimer > 0 ? a.boostMultiplier : 1;
   const boostB = b.boostTimer > 0 ? b.boostMultiplier : 1;
-  const impulseA = baseImpulse * atkCombatMult(b.bey.stats.attack) * boostB / defMult(a.bey.stats.defense);
-  const impulseB = baseImpulse * atkCombatMult(a.bey.stats.attack) * boostA / defMult(b.bey.stats.defense);
+  let impulseA = baseImpulse * pushMult(b.bey.stats.attack) * boostB / defMult(a.bey.stats.defense);
+  let impulseB = baseImpulse * pushMult(a.bey.stats.attack) * boostA / defMult(b.bey.stats.defense);
+  if (heavyA) impulseA *= 0.05;
+  if (heavyB) impulseB *= 0.05;
   a.vx -= nx * impulseA; a.vy -= ny * impulseA;
   b.vx += nx * impulseB; b.vy += ny * impulseB;
-
-  // Guaranteed separation pop: after any contact, ensure the two beys are actually
-  // moving APART along the normal by at least a minimum speed. This makes collisions
-  // read as real bounces (like real beys ricocheting) instead of grinding/sticking.
+  // Guaranteed separation pop so clashes read as bounces, not grinding.
   const MIN_SEPARATION_SPEED = 55;
-  const sepA = a.vx * -nx + a.vy * -ny; // a's speed along the away direction
-  const sepB = b.vx * nx + b.vy * ny;   // b's speed along the away direction
-  if (sepA < MIN_SEPARATION_SPEED) {
-    const add = MIN_SEPARATION_SPEED - sepA;
-    a.vx -= nx * add; a.vy -= ny * add;
-  }
-  if (sepB < MIN_SEPARATION_SPEED) {
-    const add = MIN_SEPARATION_SPEED - sepB;
-    b.vx += nx * add; b.vy += ny * add;
-  }
+  const sepA = a.vx * -nx + a.vy * -ny;
+  const sepB = b.vx * nx + b.vy * ny;
+  if (!heavyA && sepA < MIN_SEPARATION_SPEED) { const add = MIN_SEPARATION_SPEED - sepA; a.vx -= nx * add; a.vy -= ny * add; }
+  if (!heavyB && sepB < MIN_SEPARATION_SPEED) { const add = MIN_SEPARATION_SPEED - sepB; b.vx += nx * add; b.vy += ny * add; }
 
-  // Damage (spin loss) + sound only once per cooldown window — staying in contact
-  // keeps them touching but does NOT re-apply a hit every frame.
   if (BATTLE.impactCooldown > 0) return;
   BATTLE.impactCooldown = IMPACT_COOLDOWN;
+  if (noDamage) { if (!BATTLE.sim) playHitSound(0.5); return; }
 
-  // During the post-KO beat we still bounced physically above, but apply no damage.
-  if (noDamage) { playHitSound(); return; }
+  // Damage: impact speed sets the size; the bey that drove in deals most of it.
+  const raw = impactLoss(closing);
+  const sum = aIn + bIn;
+  const aShare = sum > 1 ? aIn / sum : 0.5;
+  const bShare = 1 - aShare;
+  let lossToB = raw * (0.3 + 0.7 * aShare) * boostA * atkCombatMult(a.bey.stats.attack) / spinDefMult(b.bey.stats.defense);
+  let lossToA = raw * (0.3 + 0.7 * bShare) * boostB * atkCombatMult(b.bey.stats.attack) / spinDefMult(a.bey.stats.defense);
+  lossToA = Math.min(MAX_SPIN_LOSS, lossToA);
+  lossToB = Math.min(MAX_SPIN_LOSS, lossToB);
 
-  // Base spin loss from closing speed, clamped to the reference range, then modulated
-  // by attacker attack (boosted by an active move), defender spin-defense, and the
-  // type-advantage triangle (attack>stamina>defense>attack).
-  const baseSpinLoss = Math.min(MAX_SPIN_LOSS, Math.max(MIN_SPIN_LOSS, closing * SPIN_LOSS_SCALE));
-  const advAtoB = typeAdvantage(a.bey.type, b.bey.type);
-  const advBtoA = typeAdvantage(b.bey.type, a.bey.type);
-  let lossToA = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(b.bey.stats.attack) * boostB * advBtoA / spinDefMult(a.bey.stats.defense));
-  let lossToB = Math.min(MAX_SPIN_LOSS, baseSpinLoss * atkCombatMult(a.bey.stats.attack) * boostA * advAtoB / spinDefMult(b.bey.stats.defense));
-  // Raised shell (Draciel's base move): while guarding, BASE-move damage from the
-  // opponent is fully blocked — the shell eats the smash. Normal grazes still chip.
-  const aGuarded = a.guardTimer > 0, bGuarded = b.guardTimer > 0;
-  const aHitWithBase = a.boostTimer > 0 && a.boostSource === 'base';
-  const bHitWithBase = b.boostTimer > 0 && b.boostSource === 'base';
-  if (aGuarded && bHitWithBase) lossToA = 0;
-  if (bGuarded && aHitWithBase) lossToB = 0;
-  // The raised shell also SHOVES whoever touches it (turtle counter-push).
-  const SHELL_SHOVE = 140;
-  if (aGuarded) { b.vx += nx * SHELL_SHOVE; b.vy += ny * SHELL_SHOVE; }
-  if (bGuarded) { a.vx -= nx * SHELL_SHOVE; a.vy -= ny * SHELL_SHOVE; }
-  a.spin = Math.max(0, a.spin - lossToA);
-  b.spin = Math.max(0, b.spin - lossToB);
+  const baseHitA = a.boostTimer > 0 && (a.boostSource === 'base' || a.boostSource === 'release');
+  const baseHitB = b.boostTimer > 0 && (b.boostSource === 'base' || b.boostSource === 'release');
+  if (baseHitA) lossToB += scaled(a, b, SMASH);
+  if (baseHitB) lossToA += scaled(b, a, SMASH);
+  if (a.boostTimer > 0 && a.boostSource === 'claw') lossToB += a.clawBonus;
+  if (b.boostTimer > 0 && b.boostSource === 'claw') lossToA += b.clawBonus;
+  if (a.boostTimer > 0 && a.boostSource === 'release' && a.mirrorStore > 0) { lossToB += a.mirrorStore; a.mirrorStore = 0; emit('release', { x: b.x, y: b.y }); }
+  if (b.boostTimer > 0 && b.boostSource === 'release' && b.mirrorStore > 0) { lossToA += b.mirrorStore; b.mirrorStore = 0; emit('release', { x: a.x, y: a.y }); }
 
-  // SMASH BONUS: landing a hit WHILE your BASE move is active deals an extra guaranteed
-  // chunk of spin damage, mitigated far less by the opponent's defense. This is the
-  // skill reward — the base move is aimed and can miss, so connecting earns it. The
-  // special's boost does NOT get this (it homes automatically; no skill involved).
-  // Still capped per hit, so it never one-shots — it's a game, not a coin flip.
-  const SMASH = 0.05;
-  const aBaseHit = a.boostTimer > 0 && a.boostSource === 'base';
-  const bBaseHit = b.boostTimer > 0 && b.boostSource === 'base';
-  if (aBaseHit && !bGuarded) {
-    const bonus = Math.min(0.09, SMASH * atkCombatMult(a.bey.stats.attack) * advAtoB / (0.8 + spinDefMult(b.bey.stats.defense) * 0.45));
-    b.spin = Math.max(0, b.spin - bonus);
-  }
-  if (bBaseHit && !aGuarded) {
-    const bonus = Math.min(0.09, SMASH * atkCombatMult(b.bey.stats.attack) * advBtoA / (0.8 + spinDefMult(a.bey.stats.defense) * 0.45));
-    a.spin = Math.max(0, a.spin - bonus);
-  }
-  // Landing a BASE hit also trims the special cooldown (skill reward, base-only).
-  const SPECIAL_CD_REFUND = 1.6; // seconds shaved off the special cooldown on a base hit
-  if (aBaseHit && a.specialTimer > 0) a.specialTimer = Math.max(0, a.specialTimer - SPECIAL_CD_REFUND);
-  if (bBaseHit && b.specialTimer > 0) b.specialTimer = Math.max(0, b.specialTimer - SPECIAL_CD_REFUND);
+  // Special-move contact effects.
+  lossToB += contactSpecial(a, b);
+  lossToA += contactSpecial(b, a);
 
+  // Defensive layers: Draciel's shell (block / perfect parry) and Zeus's mirror.
+  const n = { x: nx, y: ny };
+  lossToA = defendHit(a, b, lossToA, n, bIn);
+  lossToB = defendHit(b, a, lossToB, { x: -nx, y: -ny }, aIn);
+
+  const kindA = a.boostTimer > 0 ? 'hit:' + a.boostSource : 'hit:plain';
+  const kindB = b.boostTimer > 0 ? 'hit:' + b.boostSource : 'hit:plain';
+  const gotB = dealDamage(a, b, lossToB, kindA);
+  const gotA = dealDamage(b, a, lossToA, kindB);
+  if (baseHitA && gotB > 0 && a.specialTimer > 0) a.specialTimer = Math.max(0, a.specialTimer - SPECIAL_CD_REFUND);
+  if (baseHitB && gotA > 0 && b.specialTimer > 0) b.specialTimer = Math.max(0, b.specialTimer - SPECIAL_CD_REFUND);
+
+  emit('impact', {
+    x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, nx, ny,
+    power: Math.max(gotA, gotB), base: baseHitA || baseHitB,
+    colorA: a.bey.colors.bit, colorB: b.bey.colors.bit
+  });
   a.boostTimer = 0;
   b.boostTimer = 0;
-  playHitSound(); // every registered impact (gated by the cooldown above)
-}
-
-// Base move: a committed dash toward where the opponent IS RIGHT NOW. It fires in
-// that fixed direction, so if the opponent moves in the moment you press it, you can
-// miss. A direct spin hit lands only if the opponent is actually in the dash path
-// when the move goes off (an immediate aim check); otherwise it's just a lunge and
-// damage falls to the normal collision system.
-// Base move: a forward thrust in the direction the bey is ALREADY moving (no auto-aim
-// Base move: a dash launched toward WHERE THE OPPONENT IS at the instant you press it.
-// The direction is locked at that moment — it does NOT track the opponent. So if they
-// move out of the way before contact, you miss. Damage is dealt by the normal (boosted)
-// collision if the dash actually connects. The opponent never auto-dodges.
-function triggerBaseMove(attacker, defender) {
-  if (attacker.baseTimer > 0) return; // not ready
-  // Aim at the opponent's current position, then commit to that fixed direction.
-  const dx = defender.x - attacker.x, dy = defender.y - attacker.y;
-  const dist = Math.hypot(dx, dy) || 1;
-  const dirX = dx / dist, dirY = dy / dist;
-
-  // Wolborg: hurls ice shards along the aimed direction — ONE per press, three shots
-  // per clip. Between shots there's just a short gap; after the third, the full base
-  // cooldown starts like every other bey. Damage/refund are per-shard (distributed).
-  if (attacker.bey.id === 'wolborg') {
-    if (attacker.shardAmmo <= 0) attacker.shardAmmo = 3; // new clip
-    BATTLE.projectiles.push({
-      owner: attacker, x: attacker.x + dirX * BEY_R * 1.3, y: attacker.y + dirY * BEY_R * 1.3,
-      vx: dirX * 430, vy: dirY * 430, life: 0.9, hit: false
-    });
-    attacker.shardAmmo--;
-    attacker.baseTimer = attacker.shardAmmo > 0
-      ? 0.45                                  // brief gap before the next shard
-      : attacker.bey.moves.base.cooldown;     // clip spent: full cooldown
-    return;
+  a.darkClawPending = false;   // a Dark Claw that connected costs nothing
+  b.darkClawPending = false;
+  if (!BATTLE.sim) {
+    const p = Math.min(1, Math.max(gotA, gotB) / 0.08);
+    playHitSound(0.35 + 0.6 * p, (baseHitA || baseHitB) ? 0.85 : 1);
   }
-  // Draciel: raises its shell — blocks the opponent's BASE-move damage while it lasts,
-  // AND counters: contact during the guard deals normal base-hit damage plus a shove.
-  if (attacker.bey.id === 'draciel') {
-    attacker.guardTimer = 1.6;
-    attacker.boostTimer = 1.6;
-    attacker.boostMultiplier = attacker.bey.moves.base.power;
-    attacker.boostSource = 'base';
-    attacker.baseTimer = attacker.bey.moves.base.cooldown;
-    return;
+}
+
+// Contact effects of an active special belonging to `f` when it touches `o`.
+function contactSpecial(f, o) {
+  const s = f.special;
+  if (!s) return 0;
+  if (s.lastContact != null && s.t - s.lastContact < 0.4) return 0;
+  s.lastContact = s.t;
+  if (s.kind === 'eclipse' && s.t > 0.3) {
+    const amt = scaled(f, o, 0.035);
+    f.spin = Math.min(1, f.spin + amt * 0.5);
+    emit('drain', { x: o.x, y: o.y });
+    return amt;
   }
-
-  attacker.vx += dirX * 230;
-  attacker.vy += dirY * 230;
-  attacker.boostTimer = attacker.bey.moves.base.duration;
-  attacker.boostMultiplier = attacker.bey.moves.base.power;
-  attacker.boostSource = 'base'; // skill bonuses (smash, CD refund) only for base hits
-  attacker.baseTimer = attacker.bey.moves.base.cooldown; // start cooldown
+  if (s.kind === 'maelstrom' && s.t > s.wind) return scaled(f, o, 0.03);
+  if (s.kind === 'blizzard' && !s.froze && s.t > 0.3) {
+    s.froze = true;
+    o.frozen = 1.0;
+    o.vx = 0; o.vy = 0;
+    emit('freeze', { x: o.x, y: o.y });
+    return scaled(f, o, 0.1);
+  }
+  return 0;
 }
 
-// Special move: GUARANTEED to affect the opponent. The attacker locks onto the
-// opponent (homing) and an active effect drains the opponent's spin steadily for the
-// whole duration — like Leone's tornado / Libra's sand field in the reference. The
-// per-bey flavor (pull to center, vortex, etc.) can be layered on visually later.
-function triggerSpecialMove(attacker, defender) {
-  if (attacker.specialTimer > 0) return; // not ready
-  attacker.specialTimer = attacker.bey.moves.special.cooldown; // start cooldown
-  attacker.boostMultiplier = attacker.bey.moves.special.power;
-  // Start an active special effect tied to THIS attacker (per-bey, so both can run
-  // their special simultaneously without cancelling each other's glow/effect).
-  attacker.special = {
-    attacker, defender,
-    timeLeft: attacker.bey.moves.special.duration,
-    duration: attacker.bey.moves.special.duration,
-    power: attacker.bey.moves.special.power
-  };
+// Draciel's shell and Zeus's mirror. `n` points from the defender toward the attacker.
+function defendHit(def, att, loss, n, attackerDrive) {
+  if (loss <= 0) return loss;
+  if (def.guardTimer > 0) {
+    const meaningful = attackerDrive > 45 || att.boostTimer > 0;
+    if (def.guardAge <= PARRY_WINDOW && meaningful) {
+      // Perfect parry: the hit bounces back onto the attacker.
+      dealDamage(def, att, loss + 0.02, 'parry');
+      att.vx += n.x * 260; att.vy += n.y * 260;
+      att.ctrlLock = 0.25;
+      def.guardTimer = 0;
+      emit('parry', { x: def.x + n.x * BEY_R, y: def.y + n.y * BEY_R });
+      return 0;
+    }
+    att.vx += n.x * 140; att.vy += n.y * 140;
+    emit('block', { x: def.x + n.x * BEY_R, y: def.y + n.y * BEY_R });
+    return loss * 0.3;
+  }
+  if (def.mirror > 0) {
+    // Mirror Guard: soaks 60% of the hit and stores part of it for the release dash.
+    if (BATTLE.dmgLog) logDmg(def, 'ABSORBED', loss * 0.6);
+    def.mirrorStore = Math.min(0.06, loss * 0.6);
+    def.mirrorStoreT = 4;
+    def.mirror = 0;
+    def.baseTimer = Math.min(def.baseTimer, 0.35);
+    emit('absorb', { x: def.x, y: def.y });
+    return loss * 0.4;
+  }
+  return loss;
 }
 
-// Runs every frame: advances each bey's own active special (homing + steady drain).
-function updateActiveSpecial(dt) {
-  [BATTLE.a, BATTLE.b].forEach((f) => stepSpecial(f, dt));
+// Dragoon's gale trail: whoever crosses it gets blown sideways.
+function updateTrails(dt) {
+  if (!BATTLE.trails.length) return;
+  for (const tr of BATTLE.trails) {
+    tr.age += dt;
+    const owner = tr.owner;
+    if (tr.age < tr.record && !owner.out && tr.pts.length < 40) tr.pts.push({ x: owner.x, y: owner.y });
+    const o = foeOf(owner);
+    if (tr.used || tr.age < 0.06 || o.out || o.airborne) continue;
+    for (const p of tr.pts) {
+      if (Math.hypot(o.x - p.x, o.y - p.y) < BEY_R * 1.4) {
+        const side = (tr.dir.x * (o.y - p.y) - tr.dir.y * (o.x - p.x)) >= 0 ? 1 : -1;
+        const px = -tr.dir.y * side, py = tr.dir.x * side;
+        o.vx += px * 230; o.vy += py * 230;
+        o.ctrlLock = Math.max(o.ctrlLock, 0.22);
+        dealDamage(owner, o, scaled(owner, o, 0.012), 'gust');
+        tr.used = true;
+        emit('gust', { x: o.x, y: o.y, dx: px, dy: py });
+        break;
+      }
+    }
+  }
+  BATTLE.trails = BATTLE.trails.filter((t) => t.age < t.life);
 }
-function stepSpecial(attacker, dt) {
-  const s = attacker.special;
+
+// Wolborg's howl: an expanding cone of frost.
+function updateWaves(dt) {
+  if (!BATTLE.waves.length) return;
+  for (const w of BATTLE.waves) {
+    w.t += dt;
+    const o = foeOf(w.owner);
+    if (w.hit || o.out || o.airborne) continue;
+    const front = w.len * Math.min(1, w.t / w.dur);
+    const rx = o.x - w.x, ry = o.y - w.y, rd = Math.hypot(rx, ry);
+    if (rd <= front + BEY_R && Math.abs(angleDiff(Math.atan2(ry, rx), w.ang)) <= w.half + 0.15) {
+      w.hit = true;
+      if (o.guardTimer > 0) { emit('block', { x: o.x, y: o.y }); continue; }
+      if (o.mirror > 0) { defendHit(o, w.owner, scaled(w.owner, o, 0.03), { x: -rx / rd, y: -ry / rd }, 0); continue; }
+      dealDamage(w.owner, o, scaled(w.owner, o, 0.035), 'howl');
+      o.slow = 0.9;
+      o.vx += Math.cos(w.ang) * 70; o.vy += Math.sin(w.ang) * 70;
+      if (w.owner.specialTimer > 0) w.owner.specialTimer = Math.max(0, w.owner.specialTimer - 1.2);
+      emit('howlHit', { x: o.x, y: o.y });
+    }
+  }
+  BATTLE.waves = BATTLE.waves.filter((w) => w.t < w.dur + 0.3);
+}
+
+// ---------------------------------------------------------------
+// BASE MOVES — one per bey, all aimed at the press and able to miss.
+// ---------------------------------------------------------------
+function triggerBaseMove(f, o, aimErr) {
+  if (!canAct(f)) return false;
+  const base = f.bey.moves.base;
+  const id = f.bey.id;
+  // Driger: second pounce, re-aimed, inside its short window.
+  if (id === 'driger' && f.pounceLeft > 0) {
+    const d = aimDir(f, o, aimErr);
+    dash(f, d, 235, base.power, 0.45);
+    f.pounceLeft = 0; f.pounceWindow = 0;
+    f.baseTimer = base.cooldown;
+    emit('base', { f, kind: 'pounce2', dir: d });
+    return true;
+  }
+  if (f.baseTimer > 0) return false;
+  const d = aimDir(f, o, aimErr);
+  switch (id) {
+    case 'dragoon':   // Gale Trail: dash that leaves a gust behind it
+      dash(f, d, 240, base.power);
+      BATTLE.trails.push({ owner: f, pts: [{ x: f.x, y: f.y }], record: 0.42, life: 1.4, age: 0, dir: d, used: false });
+      f.baseTimer = base.cooldown;
+      break;
+    case 'dranzer': { // Flame Arc: dash that curves around to the target point
+      const side = ((f.vx * d.y - f.vy * d.x) >= 0) ? -1 : 1;
+      const ang = d.ang + side * 0.5;
+      dash(f, { x: Math.cos(ang), y: Math.sin(ang) }, 270, base.power, 0.6);
+      f.arc = { tx: o.x, ty: o.y, t: 0.5 };
+      f.baseTimer = base.cooldown;
+      break;
+    }
+    case 'blackdranzer': // Dark Claw: the hardest dash — if it misses, it burns its own spin
+      dash(f, d, 285, base.power);
+      f.darkClawPending = true;
+      f.baseTimer = base.cooldown;
+      break;
+    case 'driger':    // Twin Pounce: first of two dashes
+      dash(f, d, 215, base.power, 0.45);
+      f.pounceLeft = 1; f.pounceWindow = 0.9;
+      f.baseTimer = 0.18;
+      break;
+    case 'draciel':   // Iron Shell: block, or parry if raised just before impact
+      f.guardTimer = 1.2; f.guardAge = 0;
+      f.baseTimer = base.cooldown;
+      break;
+    case 'wolborg':   // Frost Howl: cone that slows on hit
+      BATTLE.waves.push({ owner: f, x: f.x, y: f.y, ang: d.ang, t: 0, dur: 0.38, len: 165, half: 0.5, hit: false });
+      f.baseTimer = base.cooldown;
+      break;
+    case 'zeus':      // Mirror Guard: absorb a hit, then release it with a dash
+      if (f.mirrorStore > 0) {
+        dash(f, d, 260, base.power);
+        f.boostSource = 'release';
+      } else {
+        f.mirror = 0.6;
+      }
+      f.baseTimer = base.cooldown;
+      break;
+    default:
+      dash(f, d, 230, base.power);
+      f.baseTimer = base.cooldown;
+  }
+  emit('base', { f, kind: id, dir: d });
+  return true;
+}
+
+// ---------------------------------------------------------------
+// SPECIAL MOVES — telegraphed, each with a counterplay. Value ~0.15 spin if fully landed.
+// ---------------------------------------------------------------
+const SPECIAL_KIND = { dragoon: 'tornado', dranzer: 'dive', blackdranzer: 'eclipse', driger: 'claw',
+                       draciel: 'maelstrom', wolborg: 'blizzard', zeus: 'dimension' };
+function triggerSpecialMove(f, o) {
+  if (!canAct(f) || f.specialTimer > 0 || f.special) return false;
+  f.specialTimer = f.bey.moves.special.cooldown;
+  const kind = SPECIAL_KIND[f.bey.id] || 'tornado';
+  const s = { kind, t: 0, foe: o };
+  switch (kind) {
+    case 'tornado': Object.assign(s, { x: f.x, y: f.y, R: 105, wind: 0.35, dur: 2.1, flung: false }); break;
+    case 'dive':
+      Object.assign(s, { phase: 'rise', pt: 0, sx: f.x, sy: f.y, tx: o.x, ty: o.y, h: 0, hit: null });
+      f.airborne = true; f.vx = 0; f.vy = 0; f.boostTimer = 0;
+      break;
+    case 'eclipse': Object.assign(s, { R: 90, dur: 2.4, linked: false }); break;
+    case 'claw': Object.assign(s, { beat: 0.62, next: 0.62, count: 0, results: [], aiPressAt: null }); break;
+    case 'maelstrom': Object.assign(s, { R: 104, wind: 0.35, dur: 2.6 }); f.anchored = true; break;
+    case 'blizzard': Object.assign(s, { dur: 2.8, froze: false }); o.iceSlide = 2.8; break;
+    case 'dimension': Object.assign(s, { dur: 2.8, bolts: [], nextBolt: 0.3 }); break;
+  }
+  f.special = s;
+  emit('special', { f, kind });
+  return true;
+}
+
+function endSpecial(f) {
+  const s = f.special;
   if (!s) return;
-  const defender = s.defender;
-  if (attacker.out || defender.out) { attacker.special = null; return; }
+  if (s.kind === 'dive') { f.airborne = false; f.height = 0; }
+  if (s.kind === 'maelstrom') f.anchored = false;
+  if (s.kind === 'blizzard' && s.foe) s.foe.iceSlide = 0;
+  f.special = null;
+}
 
-  const dx = defender.x - attacker.x, dy = defender.y - attacker.y;
-  const dist = Math.hypot(dx, dy) || 1;
-  const beyId = attacker.bey.id;
-  // Aggressive specials home in on the opponent to bring them inside the effect.
-  // Draciel doesn't chase — its tide PULLS the foe into the field instead — and
-  // Wolborg doesn't need to: its ice block forms directly on the opponent.
-  const homes = beyId !== 'draciel' && beyId !== 'wolborg';
-  if (homes) {
-    attacker.vx += (dx / dist) * 320 * dt;
-    attacker.vy += (dy / dist) * 320 * dt;
+// Driger's rhythm presses during Thunder Claw.
+function clawPress(f) {
+  const s = f.special;
+  if (!s || s.kind !== 'claw' || s.count >= 3) return;
+  const off = Math.abs(s.t - s.next);
+  const q = off <= 0.11 ? 'perfect' : off <= 0.22 ? 'good' : 'miss';
+  if (q !== 'miss') {
+    const o = s.foe;
+    const d = aimDir(f, o, 0);
+    const speed = q === 'perfect' ? 300 : 210;
+    f.vx = d.x * speed; f.vy = d.y * speed;
+    f.boostTimer = 0.3;
+    f.boostMultiplier = q === 'perfect' ? 1.25 : 1.05;
+    f.boostSource = 'claw';
+    f.clawBonus = scaled(f, o, q === 'perfect' ? 0.03 : 0.012);
+    f.lungeT = 0.18;
   }
+  s.results.push(q);
+  emit('claw', { f, q, n: s.count });
+  s.count++;
+  s.next += s.beat;
+  s.aiPressAt = null;
+}
 
-  // Drain over the duration — but ONLY while the opponent is actually inside the
-  // effect's reach. No more damage-from-nowhere when the foe is far from the visuals.
-  // Wolborg is the exception: its ice block appears ON the opponent, so range is moot.
-  let totalDrain = 0.09 * s.power * atkCombatMult(attacker.bey.stats.attack) * typeAdvantage(attacker.bey.type, defender.bey.type) / spinDefMult(defender.bey.stats.defense);
-  totalDrain = Math.min(0.18, totalDrain); // hard cap per special
-  const EFFECT_RANGE = BEY_R * 6; // matches the enlarged visuals' footprint
-  if (beyId === 'wolborg' || dist < EFFECT_RANGE) {
-    defender.spin = Math.max(0, defender.spin - (totalDrain / s.duration) * dt);
+function stepSpecial(f, dt) {
+  const s = f.special;
+  if (!s) return;
+  const o = s.foe;
+  if (f.out || o.out) { endSpecial(f); return; }
+  s.t += dt;
+  const dx = o.x - f.x, dy = o.y - f.y;
+  const d = Math.hypot(dx, dy) || 1;
+  switch (s.kind) {
+    case 'tornado': {
+      // The funnel follows Dragoon with a lag, so the player can drag it onto the rival.
+      const follow = Math.min(1, 1.6 * dt);
+      s.x += (f.x - s.x) * follow; s.y += (f.y - s.y) * follow;
+      const rx = o.x - s.x, ry = o.y - s.y, rd = Math.hypot(rx, ry) || 1;
+      const active = s.t > s.wind && s.t < s.dur;
+      if (active && rd < s.R && !o.airborne) {
+        const inward = 300 * (0.6 + 0.4 * rd / s.R);
+        o.vx -= rx / rd * inward * dt; o.vy -= ry / rd * inward * dt;
+        o.vx += -ry / rd * 260 * dt;   o.vy += rx / rd * 260 * dt;   // clockwise swirl
+        o.steerMul = 0.35;
+        o.liftTarget = 1;
+        dealDamage(f, o, scaled(f, o, 0.08) * dt, 'tornado');
+      }
+      if (s.t >= s.dur && !s.flung) {
+        s.flung = true;
+        if (rd < s.R * 1.15 && !o.airborne) {
+          let fv;
+          const inp = f.input;
+          if (f.isPlayer && !BATTLE.sim && inp && Math.hypot(inp.x, inp.y) > 0.3) {
+            const m = Math.hypot(inp.x, inp.y); fv = { x: inp.x / m, y: inp.y / m };
+          } else if (f.isPlayer && !BATTLE.sim) {
+            fv = { x: rx / rd, y: ry / rd };
+          } else {
+            fv = pocketDir(o);
+            const e = gauss() * (0.05 + (1 - f.skill) * 0.4);
+            const ang = Math.atan2(fv.y, fv.x) + e; fv = { x: Math.cos(ang), y: Math.sin(ang) };
+          }
+          o.vx = fv.x * 380; o.vy = fv.y * 380;
+          o.ctrlLock = 0.3;
+          dealDamage(f, o, scaled(f, o, 0.03), 'fling');
+          emit('fling', { x: o.x, y: o.y, dx: fv.x, dy: fv.y });
+        }
+      }
+      if (s.t >= s.dur + 0.35) endSpecial(f);
+      break;
+    }
+    case 'dive': {
+      const RISE = 0.45, AIM = 0.75, LOCK = 0.35, DIVE = 0.3, H = 85;
+      const lim = ARENA.r - BEY_R - 6;
+      if (!(f.isPlayer && !BATTLE.sim) && (s.phase === 'rise' || s.phase === 'aim')) {
+        // CPU reticle: tracks the rival, leading it a little; sloppier = laggier.
+        const sk = f.skill, lag = 2 + 6 * sk;
+        const tx = o.x + o.vx * 0.5 * sk + gauss() * (1 - sk) * 6;
+        const ty = o.y + o.vy * 0.5 * sk + gauss() * (1 - sk) * 6;
+        s.tx += (tx - s.tx) * Math.min(1, lag * dt);
+        s.ty += (ty - s.ty) * Math.min(1, lag * dt);
+      }
+      const tr = Math.hypot(s.tx, s.ty);
+      if (tr > lim) { s.tx *= lim / tr; s.ty *= lim / tr; }
+      s.pt += dt;
+      if (s.phase === 'rise') {
+        s.h = H * (1 - Math.pow(1 - Math.min(1, s.pt / RISE), 3));
+        if (s.pt >= RISE) { s.phase = 'aim'; s.pt = 0; }
+      } else if (s.phase === 'aim') {
+        s.h = H + Math.sin(s.t * 6) * 3;
+        if (s.pt >= AIM) { s.phase = 'lock'; s.pt = 0; emit('diveLock', { x: s.tx, y: s.ty }); }
+      } else if (s.phase === 'lock') {
+        s.h = H + 6 * (s.pt / LOCK);                 // wind up before plunging
+        if (s.pt >= LOCK) { s.phase = 'dive'; s.pt = 0; s.fx = f.x; s.fy = f.y; }
+      } else if (s.phase === 'dive') {
+        const k = Math.min(1, s.pt / DIVE);
+        f.x = s.fx + (s.tx - s.fx) * k;
+        f.y = s.fy + (s.ty - s.fy) * k;
+        s.h = H * (1 - k * k);
+        if (k >= 1) {
+          f.airborne = false; s.h = 0; s.phase = 'land'; s.pt = 0;
+          const hd = Math.hypot(o.x - s.tx, o.y - s.ty);
+          if (hd < 60 && !o.airborne) {
+            const got = dealDamage(f, o, scaled(f, o, 0.17), 'dive');
+            const kx = (o.x - s.tx) / (hd || 1), ky = (o.y - s.ty) / (hd || 1);
+            o.vx += (hd > 1 ? kx : 1) * 380; o.vy += (hd > 1 ? ky : 0) * 380;
+            o.ctrlLock = 0.3;
+            s.hit = true;
+            emit('diveHit', { x: s.tx, y: s.ty, power: got });
+          } else {
+            f.stun = 0.7;
+            f.spin = Math.max(0.01, f.spin - 0.025);
+            s.hit = false;
+            emit('diveMiss', { x: s.tx, y: s.ty });
+          }
+        }
+      } else if (s.phase === 'land') {
+        if (s.pt > 0.5) endSpecial(f);
+      }
+      f.height = s.h;
+      break;
+    }
+    case 'eclipse': {
+      f.vx += dx / d * 260 * dt; f.vy += dy / d * 260 * dt;   // stalk the prey
+      s.linked = s.t > 0.3 && d < s.R && !o.airborne;
+      if (s.linked) {
+        const got = dealDamage(f, o, scaled(f, o, 0.065) * dt, 'eclipse');
+        f.spin = Math.min(1, f.spin + got * 0.5);
+      }
+      if (s.t >= s.dur) endSpecial(f);
+      break;
+    }
+    case 'claw': {
+      if (!(f.lungeT > 0)) { f.vx += dx / d * 150 * dt; f.vy += dy / d * 150 * dt; }
+      if (!(f.isPlayer && !BATTLE.sim) && s.count < 3) {
+        if (s.aiPressAt == null) s.aiPressAt = s.next + gauss() * (0.03 + 0.16 * (1 - f.skill));
+        const dimUp = o.special && o.special.kind === 'dimension';
+        if (s.t >= s.aiPressAt && !(dimUp && Math.random() < f.skill)) clawPress(f);
+        else if (s.t >= s.aiPressAt) s.aiPressAt = Infinity;
+      }
+      if (s.count < 3 && s.t > s.next + 0.22) {     // beat passed with no press
+        s.results.push('miss');
+        emit('claw', { f, q: 'miss', n: s.count });
+        s.count++; s.next += s.beat; s.aiPressAt = null;
+      }
+      if (s.count >= 3 && s.t > s.next - s.beat + 0.4) endSpecial(f);
+      break;
+    }
+    case 'maelstrom': {
+      f.anchored = true;
+      if (s.t > s.wind && d < s.R && !o.airborne) {
+        o.vx -= dx / d * 215 * dt; o.vy -= dy / d * 215 * dt;
+        o.vx += -dy / d * 170 * dt; o.vy += dx / d * 170 * dt;
+        o.inMaelstrom = true;
+        dealDamage(f, o, scaled(f, o, 0.055) * dt, 'maelstrom');
+      }
+      if (s.t >= s.dur) endSpecial(f);
+      break;
+    }
+    case 'blizzard': {
+      o.iceSlide = Math.max(o.iceSlide, 0.05);
+      if (s.t > 0.4) dealDamage(f, o, scaled(f, o, 0.022) * dt, 'blizzard');
+      if (s.t >= s.dur) endSpecial(f);
+      break;
+    }
+    case 'dimension': {
+      if (s.t >= s.nextBolt && s.t < s.dur - 0.55) {
+        s.bolts.push({ x: o.x, y: o.y, t: 0, struck: false, hit: false });
+        s.nextBolt += 0.6;
+      }
+      for (const b of s.bolts) {
+        b.t += dt;
+        if (!b.struck && b.t >= 0.55) {
+          b.struck = true;
+          if (Math.hypot(o.x - b.x, o.y - b.y) < 30 && !o.airborne) {
+            dealDamage(f, o, scaled(f, o, 0.036), 'bolt');
+            o.ctrlLock = Math.max(o.ctrlLock, 0.15);
+            b.hit = true;
+          }
+          emit('bolt', { x: b.x, y: b.y, hit: b.hit });
+        }
+      }
+      s.bolts = s.bolts.filter((b) => b.t < 1.0);
+      if (s.t >= s.dur) endSpecial(f);
+      break;
+    }
   }
-
-  // Keep a MODEST collision boost during the special, tagged as 'special' so the
-  // base-move skill bonuses (smash, CD refund) do NOT apply. The boost is deliberately
-  // small: the special now lasts longer for spectacle, and a full-power boost for the
-  // whole window would inflate damage — the drain above is already duration-neutral.
-  attacker.boostTimer = Math.max(attacker.boostTimer, 0.05);
-  attacker.boostMultiplier = 1.15;
-  attacker.boostSource = 'special';
-
-  // Signature twists matching the VFX: Wolborg's blizzard seals the foe in ice
-  // (velocity heavily damped); Draciel's tide pulls the foe in and slows it, like the
-  // reference project's Libra sand field.
-  if (attacker.bey.id === 'wolborg') {
-    const damp = Math.max(0, 1 - 3.5 * dt);
-    defender.vx *= damp; defender.vy *= damp;
-  } else if (attacker.bey.id === 'draciel') {
-    const pdx = attacker.x - defender.x, pdy = attacker.y - defender.y;
-    const pd = Math.hypot(pdx, pdy) || 1;
-    defender.vx += (pdx / pd) * 95 * dt;
-    defender.vy += (pdy / pd) * 95 * dt;
-    const damp = Math.max(0, 1 - 1.5 * dt);
-    defender.vx *= damp; defender.vy *= damp;
-  }
-
-  s.timeLeft -= dt;
-  if (s.timeLeft <= 0) attacker.special = null;
 }
 
 // ---------------------------------------------------------------
-// Per-bey special-move VFX (anime-inspired). Architecture follows the reference
-// project: each effect is built ONCE per battle (hidden), and an update() runs every
-// frame reading the fighter's eased glow level as its intensity envelope — so effects
-// fade in/out exactly with the special move. Damage/logic stays in stepSpecial;
-// everything here is presentation only.
+// Rendering hook: models + glow + the FX module (fx.js).
 // ---------------------------------------------------------------
-let specialVfxA = null, specialVfxB = null;
-let baseVfxA = null, baseVfxB = null;
-let vfxLastT = 0;
-
-function vfxAdd(color) {
-  return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-}
-function vfxNorm(color) {
-  return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-}
-let _softTex = null;
-function softTex() {
-  if (_softTex) return _softTex;
-  const c = document.createElement('canvas'); c.width = c.height = 64;
-  const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
-  _softTex = new THREE.CanvasTexture(c);
-  return _softTex;
-}
-function makeParticles(count, color, size, additive) {
-  const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(count * 3);
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({
-    color, size, map: softTex(), transparent: true, opacity: 0,
-    blending: additive === false ? THREE.NormalBlending : THREE.AdditiveBlending,
-    depthWrite: false
-  });
-  const pts = new THREE.Points(geo, mat);
-  const seeds = [];
-  for (let i = 0; i < count; i++) seeds.push({ a: Math.random() * Math.PI * 2, r: Math.random(), h: Math.random(), s: 0.5 + Math.random() });
-  return { pts, mat, pos, seeds, count };
-}
-function makeBoltLine(color) {
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(8 * 3), 3));
-  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
-  return new THREE.Line(geo, mat);
-}
-function zapBolt(line, x0, y0, z0, x1, y1, z1, jitter) {
-  const p = line.geometry.attributes.position;
-  const n = p.count;
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1);
-    const j = (i > 0 && i < n - 1) ? 1 : 0;
-    p.setXYZ(i,
-      x0 + (x1 - x0) * t + j * (Math.random() - 0.5) * jitter,
-      y0 + (y1 - y0) * t + j * (Math.random() - 0.5) * jitter * 0.4,
-      z0 + (z1 - z0) * t + j * (Math.random() - 0.5) * jitter);
-  }
-  p.needsUpdate = true;
-}
-
-// --- Dragoon: the storm tornado ---
-function buildTornadoVfx() {
-  const root = new THREE.Group(); root.visible = false;
-  root.scale.setScalar(1.4); // specials deserve to be seen
-  const shells = [];
-  for (let i = 0; i < 4; i++) {
-    const r0 = BEY_R * (0.7 + i * 0.5), r1 = BEY_R * (1.05 + i * 0.62);
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, 15 + i * 14, 20, 1, true), vfxAdd(0xcfe4ff));
-    m.position.y = 8 + i * 13;
-    root.add(m); shells.push(m);
-  }
-  const p = makeParticles(26, 0xe8f2ff, 7);
-  root.add(p.pts);
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.glow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    shells.forEach((s, i) => { s.rotation.y += dt * (7 - i * 1.2); s.material.opacity = 0.13 * lvl; });
-    const H = 62;
-    for (let i = 0; i < p.count; i++) {
-      const sd = p.seeds[i];
-      const y = (t * 30 * sd.s + sd.h * H) % H;
-      const rad = BEY_R * (0.8 + (y / H) * 2.3);
-      const a = sd.a + t * 5 * sd.s + y * 0.09;
-      p.pos[i * 3] = Math.cos(a) * rad;
-      p.pos[i * 3 + 1] = y + 3;
-      p.pos[i * 3 + 2] = Math.sin(a) * rad;
-    }
-    p.pts.geometry.attributes.position.needsUpdate = true;
-    p.mat.opacity = 0.8 * lvl;
-  } };
-}
-
-// --- Dranzer / Black Dranzer: phoenix fire storm (dark = black flames, red embers) ---
-// Canvas flame texture: bright at the base, fading upward, with jagged transparent
-// notches at the top so the columns end in licking flame tongues.
-function makeFlameTexture(innerColor, outerColor) {
-  const c = document.createElement('canvas'); c.width = 128; c.height = 128;
-  const ctx = c.getContext('2d');
-  const g = ctx.createLinearGradient(0, 128, 0, 0);
-  g.addColorStop(0, innerColor);
-  g.addColorStop(0.55, outerColor);
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128);
-  ctx.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < 26; i++) {
-    const x = Math.random() * 128, w = 6 + Math.random() * 16, h = 30 + Math.random() * 70;
-    ctx.beginPath();
-    ctx.moveTo(x, 0); ctx.lineTo(x + w / 2, h); ctx.lineTo(x + w, 0);
-    ctx.closePath(); ctx.fill();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  return tex;
-}
-
-function buildFireVfx(dark) {
-  const root = new THREE.Group(); root.visible = false;
-  root.scale.setScalar(1.4);
-  // Two swirling flame columns wrapping the bey: an inner hot core and a wider outer
-  // sheath, narrower toward the top like real fire. Their textures scroll in opposite
-  // directions so the flames visibly swirl, like Dranzer's phoenix fire in the anime.
-  const texIn = makeFlameTexture(
-    dark ? 'rgba(40,16,26,0.95)' : 'rgba(255,205,95,0.95)',
-    dark ? 'rgba(12,7,12,0.85)' : 'rgba(255,105,25,0.6)');
-  const texOut = makeFlameTexture(
-    dark ? 'rgba(212,50,42,0.85)' : 'rgba(255,150,50,0.85)',
-    dark ? 'rgba(95,16,14,0.4)' : 'rgba(255,60,10,0.35)');
-  const matIn = new THREE.MeshBasicMaterial({
-    map: texIn, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
-    blending: dark ? THREE.NormalBlending : THREE.AdditiveBlending
-  });
-  const matOut = new THREE.MeshBasicMaterial({
-    map: texOut, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending
-  });
-  const H_IN = BEY_R * 3.4, H_OUT = BEY_R * 2.5;
-  const colIn = new THREE.Mesh(new THREE.CylinderGeometry(BEY_R * 0.7, BEY_R * 1.45, H_IN, 20, 1, true), matIn);
-  colIn.position.y = H_IN / 2;
-  const colOut = new THREE.Mesh(new THREE.CylinderGeometry(BEY_R * 1.0, BEY_R * 1.95, H_OUT, 20, 1, true), matOut);
-  colOut.position.y = H_OUT / 2;
-  root.add(colIn); root.add(colOut);
-  const flames = makeParticles(40, dark ? 0x14090f : 0xffd166, 9, dark ? false : true);
-  const embers = makeParticles(24, dark ? 0xd4322a : 0xffb347, 6);
-  root.add(flames.pts); root.add(embers.pts);
-  const rings = [];
-  for (let i = 0; i < 2; i++) {
-    const ring = new THREE.Mesh(new THREE.RingGeometry(BEY_R * 0.9, BEY_R * 1.25, 26), vfxAdd(dark ? 0xd4322a : 0xff9a3d));
-    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.6;
-    root.add(ring); rings.push(ring);
-  }
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.glow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    // Swirl: scroll the flame textures around the columns in opposite directions,
-    // counter-rotate the columns, and let the fire "breathe" (height pulse + flicker).
-    texIn.offset.x -= dt * 0.55;
-    texOut.offset.x += dt * 0.8;
-    colIn.rotation.y += dt * 1.2;
-    colOut.rotation.y -= dt * 0.9;
-    const breathe = 1 + 0.07 * Math.sin(t * 9);
-    colIn.scale.set(1, breathe, 1);
-    colOut.scale.set(1, 1 + 0.05 * Math.sin(t * 7 + 1.3), 1);
-    matIn.opacity = (dark ? 0.8 : 0.62) * lvl * (0.88 + 0.12 * Math.sin(t * 13));
-    matOut.opacity = 0.42 * lvl * (0.85 + 0.15 * Math.sin(t * 17 + 2));
-    const H = BEY_R * 3.6;
-    [[flames, dark ? 0.55 : 0.85], [embers, 0.9]].forEach(([pp, baseOp], gi) => {
-      for (let i = 0; i < pp.count; i++) {
-        const sd = pp.seeds[i];
-        const y = (t * (26 + gi * 16) * sd.s + sd.h * H) % H;
-        const rad = BEY_R * (1.35 - (y / H) * 0.85) * (0.55 + 0.45 * sd.r);
-        const a = sd.a + t * 2.4 * sd.s;
-        pp.pos[i * 3] = Math.cos(a) * rad;
-        pp.pos[i * 3 + 1] = y + 2;
-        pp.pos[i * 3 + 2] = Math.sin(a) * rad;
-      }
-      pp.pts.geometry.attributes.position.needsUpdate = true;
-      pp.mat.opacity = baseOp * lvl;
-    });
-    rings.forEach((ring, i) => {
-      const ph = (t * 0.7 + i * 0.5) % 1;
-      const sc = 1 + ph * 2.4;
-      ring.scale.set(sc, sc, 1);
-      ring.material.opacity = 0.5 * lvl * (1 - ph);
-    });
-  } };
-}
-
-// --- Driger: white-tiger claw — green lightning arcs + slashing streaks ---
-function buildTigerVfx() {
-  const root = new THREE.Group(); root.visible = false;
-  root.scale.setScalar(1.35);
-  const bolts = [];
-  for (let i = 0; i < 6; i++) { const b = makeBoltLine(0x7cff4a); root.add(b); bolts.push({ line: b, next: 0 }); }
-  const slashes = [];
-  for (let i = 0; i < 3; i++) {
-    const s = new THREE.Mesh(new THREE.PlaneGeometry(BEY_R * 3.6, 2.4), vfxAdd(0xb8ff7a));
-    s.position.y = 9 + i * 5;
-    root.add(s); slashes.push(s);
-  }
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.glow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    bolts.forEach((b, i) => {
-      if (t > b.next) {
-        const a = Math.random() * Math.PI * 2;
-        const r = BEY_R * (2 + Math.random() * 2.2);
-        zapBolt(b.line, 0, 20, 0, Math.cos(a) * r, 1.2, Math.sin(a) * r, 6);
-        b.next = t + 0.06 + Math.random() * 0.06;
-      }
-      b.line.material.opacity = lvl * (0.45 + 0.55 * Math.abs(Math.sin(t * 30 + i * 2)));
-    });
-    slashes.forEach((s, i) => {
-      s.rotation.y = t * (9 + i * 1.6) + i * 2.1;
-      s.rotation.x = 0.15 * Math.sin(t * 5 + i);
-      s.material.opacity = 0.32 * lvl * (0.7 + 0.3 * Math.sin(t * 13 + i * 2));
-    });
-  } };
-}
-
-// --- Draciel: abyssal tide — water field, ripples and droplets ---
-function buildWaterVfx() {
-  const root = new THREE.Group(); root.visible = false;
-  root.scale.setScalar(1.3); // field radius ~BEY_R*6.5, matches the drain range
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(BEY_R * 5, 36), vfxNorm(0x2e86c1));
-  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.4;
-  const sheen = new THREE.Mesh(new THREE.CircleGeometry(BEY_R * 4.2, 36), vfxAdd(0x7fd4ff));
-  sheen.rotation.x = -Math.PI / 2; sheen.position.y = 0.55;
-  root.add(disc); root.add(sheen);
-  const ripples = [];
-  for (let i = 0; i < 3; i++) {
-    const r = new THREE.Mesh(new THREE.RingGeometry(BEY_R * 1.1, BEY_R * 1.35, 30), vfxAdd(0xa8e6ff));
-    r.rotation.x = -Math.PI / 2; r.position.y = 0.7;
-    root.add(r); ripples.push(r);
-  }
-  const drops = makeParticles(22, 0xbfe8ff, 6);
-  root.add(drops.pts);
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.glow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    disc.rotation.z += dt * 0.6;
-    sheen.rotation.z -= dt * 0.9;
-    disc.material.opacity = 0.24 * lvl;
-    sheen.material.opacity = 0.12 * lvl * (0.8 + 0.2 * Math.sin(t * 3));
-    ripples.forEach((r, i) => {
-      const ph = (t * 0.55 + i / 3) % 1;
-      const sc = 0.6 + ph * 3.2;
-      r.scale.set(sc, sc, 1);
-      r.material.opacity = 0.45 * lvl * (1 - ph);
-    });
-    for (let i = 0; i < drops.count; i++) {
-      const sd = drops.seeds[i];
-      const rad = BEY_R * (1 + sd.r * 3.4);
-      const hop = Math.abs(Math.sin(t * 2.6 * sd.s + sd.a * 3));
-      drops.pos[i * 3] = Math.cos(sd.a) * rad;
-      drops.pos[i * 3 + 1] = 1 + hop * 7;
-      drops.pos[i * 3 + 2] = Math.sin(sd.a) * rad;
-    }
-    drops.pts.geometry.attributes.position.needsUpdate = true;
-    drops.mat.opacity = 0.7 * lvl;
-  } };
-}
-
-// --- Wolborg: pack blizzard — arena snowfall + the foe sealed in an ice block ---
-function buildIceVfx() {
-  const root = new THREE.Group(); root.visible = false; // root stays at arena origin
-  const snow = makeParticles(180, 0xffffff, 7); // blankets the whole stadium
-  root.add(snow.pts);
-  const blockG = new THREE.Group();
-  // Faceted crystal (flat-shaded, lit) reads as real ice instead of a plain box.
-  const iceMat = new THREE.MeshStandardMaterial({
-    color: 0xcfeaff, transparent: true, opacity: 0, roughness: 0.12, metalness: 0.05,
-    emissive: 0x9fd8ff, emissiveIntensity: 0.35, flatShading: true
-  });
-  const crystal = new THREE.Mesh(new THREE.IcosahedronGeometry(BEY_R * 1.85, 0), iceMat);
-  crystal.scale.set(1, 1.25, 1);
-  crystal.position.y = BEY_R * 1.35;
-  blockG.add(crystal);
-  // Jutting shards around the base for the "erupted from the ground" look.
-  const shardMat = iceMat.clone();
-  for (let i = 0; i < 4; i++) {
-    const sh = new THREE.Mesh(new THREE.ConeGeometry(BEY_R * 0.4, BEY_R * (1.1 + (i % 2) * 0.5), 5), shardMat);
-    const a = (i / 4) * Math.PI * 2 + 0.5;
-    sh.position.set(Math.cos(a) * BEY_R * 1.3, BEY_R * 0.45, Math.sin(a) * BEY_R * 1.3);
-    sh.rotation.z = Math.cos(a) * 0.45;
-    sh.rotation.x = -Math.sin(a) * 0.45;
-    blockG.add(sh);
-  }
-  // Bright frozen edges + a faint inner frost mist.
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(crystal.geometry),
-    new THREE.LineBasicMaterial({ color: 0xf2fbff, transparent: true, opacity: 0 }));
-  edges.scale.copy(crystal.scale);
-  edges.position.copy(crystal.position);
-  blockG.add(edges);
-  const frost = makeParticles(8, 0xffffff, 7);
-  blockG.add(frost.pts);
-  root.add(blockG);
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.glow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(0, 0, 0);
-    const H = 85;
-    for (let i = 0; i < snow.count; i++) {
-      const sd = snow.seeds[i];
-      const rad = Math.sqrt(sd.r) * ARENA.r; // uniform over the whole stadium area
-      const y = H - ((t * 24 * sd.s + sd.h * H) % H);
-      snow.pos[i * 3] = Math.cos(sd.a) * rad + Math.sin(t * 1.4 + sd.a * 5) * 4;
-      snow.pos[i * 3 + 1] = y;
-      snow.pos[i * 3 + 2] = Math.sin(sd.a) * rad;
-    }
-    snow.pts.geometry.attributes.position.needsUpdate = true;
-    snow.mat.opacity = 0.85 * lvl;
-    blockG.position.set(opp.x, 0, opp.y);
-    const shimmer = 0.9 + 0.1 * Math.sin(t * 6);
-    iceMat.opacity = 0.55 * lvl * shimmer;
-    shardMat.opacity = 0.5 * lvl * shimmer;
-    edges.material.opacity = 0.75 * lvl;
-    crystal.rotation.y = Math.sin(t * 0.7) * 0.08; // barely-perceptible sway
-    for (let i = 0; i < frost.count; i++) {
-      const sd = frost.seeds[i];
-      frost.pos[i * 3] = Math.cos(sd.a + t * 0.8) * BEY_R * sd.r * 1.2;
-      frost.pos[i * 3 + 1] = BEY_R * (0.8 + sd.h * 1.4);
-      frost.pos[i * 3 + 2] = Math.sin(sd.a + t * 0.8) * BEY_R * sd.r * 1.2;
-    }
-    frost.pts.geometry.attributes.position.needsUpdate = true;
-    frost.mat.opacity = 0.5 * lvl;
-  } };
-}
-
-// --- Zeus: heaven's judgment — circling winds + lightning from the sky ---
-function buildStormVfx() {
-  const root = new THREE.Group(); root.visible = false;
-  root.scale.setScalar(1.35);
-  const bolts = [];
-  for (let i = 0; i < 4; i++) {
-    const b = makeBoltLine(i === 3 ? 0x9b6cf6 : 0xffffff);
-    root.add(b); bolts.push({ line: b, next: 0, ex: 0, ez: 0 });
-  }
-  const strikes = [];
-  for (let i = 0; i < 2; i++) {
-    const r = new THREE.Mesh(new THREE.RingGeometry(2.5, 4.5, 22), vfxAdd(0xe8e2ff));
-    r.rotation.x = -Math.PI / 2; r.position.y = 0.6;
-    root.add(r); strikes.push({ mesh: r, ph: 1 });
-  }
-  const winds = [];
-  for (let i = 0; i < 3; i++) {
-    const w = new THREE.Mesh(new THREE.TorusGeometry(BEY_R * (1.8 + i * 0.55), 0.8, 8, 40, Math.PI * 0.95), vfxAdd(0xd9e2ec));
-    w.rotation.x = -Math.PI / 2;
-    w.position.y = 6 + i * 6;
-    root.add(w); winds.push(w);
-  }
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.glow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    bolts.forEach((b, i) => {
-      if (t > b.next) {
-        const a = Math.random() * Math.PI * 2;
-        const r = BEY_R * (1 + Math.random() * 3);
-        b.ex = Math.cos(a) * r; b.ez = Math.sin(a) * r;
-        zapBolt(b.line, b.ex * 0.3, 68, b.ez * 0.3, b.ex, 1, b.ez, 8);
-        b.next = t + 0.09 + Math.random() * 0.12;
-        const st = strikes[i % strikes.length];
-        st.mesh.position.set(b.ex, 0.6, b.ez);
-        st.ph = 0;
-      }
-      b.line.material.opacity = lvl * (0.3 + 0.7 * Math.abs(Math.sin(t * 36 + i * 1.7)));
-    });
-    strikes.forEach((st) => {
-      st.ph = Math.min(1, st.ph + dt * 2.6);
-      const sc = 0.5 + st.ph * 2;
-      st.mesh.scale.set(sc, sc, 1);
-      st.mesh.material.opacity = 0.6 * lvl * (1 - st.ph);
-    });
-    winds.forEach((w, i) => {
-      w.rotation.z = t * (5 + i * 1.3) * (i % 2 ? -1 : 1);
-      w.material.opacity = 0.16 * lvl;
-    });
-  } };
-}
-
-// ---------------------------------------------------------------
-// Base-move VFX: quick effects that wrap the bey while its base move is active
-// (envelope = f.baseGlow, eased like the special glow). Wolborg's is different: it
-// renders the ice-shard projectiles; Draciel's shows the shell guard dome.
-// ---------------------------------------------------------------
-
-// Dragoon: storm-wind wrap — swirling pale-blue arcs (anime storm attack).
-function buildWindWrapVfx() {
-  const root = new THREE.Group(); root.visible = false;
-  const arcs = [];
-  for (let i = 0; i < 3; i++) {
-    const arc = new THREE.Mesh(new THREE.TorusGeometry(BEY_R * (1.25 + i * 0.28), 0.9, 6, 32, Math.PI * 1.1), vfxAdd(0xcfe4ff));
-    arc.rotation.x = -Math.PI / 2;
-    arc.position.y = 7 + i * 7;
-    root.add(arc); arcs.push(arc);
-  }
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.baseGlow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    arcs.forEach((a, i) => {
-      a.rotation.z = t * (11 + i * 2) * (i % 2 ? -1 : 1);
-      a.material.opacity = 0.3 * lvl;
-    });
-  } };
-}
-
-// Dranzer / Black Dranzer: the bey wrapped in flame (dark smoke + red embers for BD).
-function buildFlameWrapVfx(dark) {
-  const root = new THREE.Group(); root.visible = false;
-  const shell = new THREE.Mesh(new THREE.SphereGeometry(BEY_R * 1.35, 18, 14), dark ? vfxNorm(0x14090f) : vfxAdd(0xff8a2a));
-  shell.position.y = 15;
-  shell.scale.set(1, 0.85, 1);
-  root.add(shell);
-  const embers = makeParticles(16, dark ? 0xd4322a : 0xffd166, 6);
-  root.add(embers.pts);
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.baseGlow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    shell.rotation.y += dt * 6;
-    shell.material.opacity = (dark ? 0.5 : 0.3) * lvl * (0.85 + 0.15 * Math.sin(t * 14));
-    const H = BEY_R * 2.6;
-    for (let i = 0; i < embers.count; i++) {
-      const sd = embers.seeds[i];
-      const y = (t * 30 * sd.s + sd.h * H) % H;
-      const rad = BEY_R * (1.25 - (y / H) * 0.5);
-      const a = sd.a + t * 3 * sd.s;
-      embers.pos[i * 3] = Math.cos(a) * rad;
-      embers.pos[i * 3 + 1] = y + 4;
-      embers.pos[i * 3 + 2] = Math.sin(a) * rad;
-    }
-    embers.pts.geometry.attributes.position.needsUpdate = true;
-    embers.mat.opacity = 0.85 * lvl;
-  } };
-}
-
-// Driger: green lightning crackling around the body during the tiger dash.
-function buildCrackleVfx() {
-  const root = new THREE.Group(); root.visible = false;
-  const bolts = [];
-  for (let i = 0; i < 4; i++) { const b = makeBoltLine(0x7cff4a); root.add(b); bolts.push({ line: b, next: 0 }); }
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.baseGlow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    bolts.forEach((b, i) => {
-      if (t > b.next) {
-        const a0 = Math.random() * Math.PI * 2;
-        const a1 = a0 + (Math.random() - 0.5) * 2.2;
-        const r = BEY_R * 1.3;
-        zapBolt(b.line,
-          Math.cos(a0) * r, 5 + Math.random() * 16, Math.sin(a0) * r,
-          Math.cos(a1) * r, 5 + Math.random() * 16, Math.sin(a1) * r, 5);
-        b.next = t + 0.05 + Math.random() * 0.05;
-      }
-      b.line.material.opacity = lvl * (0.4 + 0.6 * Math.abs(Math.sin(t * 34 + i * 2)));
-    });
-  } };
-}
-
-// Draciel: the raised turtle shell — a segmented green dome facing the opponent.
-function buildShellGuardVfx() {
-  const root = new THREE.Group(); root.visible = false;
-  // Half-dome opening toward +Z (phiStart 0, phiLength PI covers the z>0 side).
-  const geo = new THREE.SphereGeometry(BEY_R * 2.0, 18, 10, 0, Math.PI, Math.PI * 0.16, Math.PI * 0.55);
-  const dome = new THREE.Mesh(geo, vfxNorm(0x3a9d4e));
-  const wire = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xb8e6a0, wireframe: true, transparent: true, opacity: 0, depthWrite: false }));
-  root.add(dome); root.add(wire);
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.baseGlow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    // Aim the dome at the opponent (rotate +Z toward them).
-    root.rotation.y = Math.atan2(opp.x - f.x, opp.y - f.y);
-    dome.material.opacity = 0.28 * lvl * (0.9 + 0.1 * Math.sin(t * 5));
-    wire.material.opacity = 0.55 * lvl;
-  } };
-}
-
-// Wolborg: renders the flying ice shards (the projectiles launched by its base move).
-const _shardUp = new THREE.Vector3(0, 1, 0);
-const _shardDir = new THREE.Vector3();
-function buildShardsVfx() {
-  const root = new THREE.Group(); root.visible = false;
-  const mat = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
-  const shards = [];
-  for (let i = 0; i < 3; i++) {
-    const m = new THREE.Mesh(new THREE.ConeGeometry(2.4, 11, 6), mat);
-    m.visible = false;
-    root.add(m); shards.push(m);
-  }
-  return { root, update(f, opp, t, dt) {
-    const ps = (BATTLE && BATTLE.projectiles) ? BATTLE.projectiles.filter((p) => p.owner === f) : [];
-    if (!ps.length) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(0, 0, 0);
-    shards.forEach((m, i) => {
-      const p = ps[i];
-      if (!p) { m.visible = false; return; }
-      m.visible = true;
-      m.position.set(p.x, 9, p.y);
-      _shardDir.set(p.vx, 0, p.vy).normalize();
-      m.quaternion.setFromUnitVectors(_shardUp, _shardDir); // tip points along flight
-    });
-  } };
-}
-
-// Zeus: shrouded in dark energy while it strikes.
-function buildDarkAuraVfx() {
-  const root = new THREE.Group(); root.visible = false;
-  const aura = new THREE.Mesh(new THREE.SphereGeometry(BEY_R * 1.45, 18, 14), vfxNorm(0x120018));
-  aura.position.y = 15; aura.scale.set(1, 0.8, 1);
-  const rim = new THREE.Mesh(new THREE.SphereGeometry(BEY_R * 1.6, 18, 14), vfxAdd(0x9b5cf6));
-  rim.position.y = 15; rim.scale.set(1, 0.8, 1);
-  root.add(aura); root.add(rim);
-  return { root, update(f, opp, t, dt) {
-    const lvl = f.baseGlow;
-    if (lvl < 0.02) { root.visible = false; return; }
-    root.visible = true;
-    root.position.set(f.x, 0, f.y);
-    aura.material.opacity = 0.45 * lvl * (0.85 + 0.15 * Math.sin(t * 9));
-    rim.material.opacity = 0.16 * lvl * (0.8 + 0.2 * Math.sin(t * 12 + 1));
-    const s = 1 + 0.06 * Math.sin(t * 10);
-    rim.scale.set(s, 0.8 * s, s);
-  } };
-}
-
-function buildBaseVfx(bey) {
-  switch (bey.id) {
-    case 'dragoon': return buildWindWrapVfx();
-    case 'dranzer': return buildFlameWrapVfx(false);
-    case 'blackdranzer': return buildFlameWrapVfx(true);
-    case 'driger': return buildCrackleVfx();
-    case 'draciel': return buildShellGuardVfx();
-    case 'wolborg': return buildShardsVfx();
-    case 'zeus': return buildDarkAuraVfx();
-    default: return buildWindWrapVfx();
-  }
-}
-
-function buildSpecialVfx(bey) {
-  switch (bey.id) {
-    case 'dragoon': return buildTornadoVfx();
-    case 'dranzer': return buildFireVfx(false);
-    case 'blackdranzer': return buildFireVfx(true);
-    case 'driger': return buildTigerVfx();
-    case 'draciel': return buildWaterVfx();
-    case 'wolborg': return buildIceVfx();
-    case 'zeus': return buildStormVfx();
-    default: return buildTornadoVfx();
-  }
-}
-
-function renderBattle() {
+function renderBattle(dt) {
   updateMeshFromFighter(meshA, BATTLE.a);
   updateMeshFromFighter(meshB, BATTLE.b);
-  // Special-move glow: lit exactly while a bey's special move is active (both can glow
-  // at once). Eased in/out for a smooth anime activation, but ends with the move.
-  const now = (performance.now() / 1000);
+  const now = performance.now() / 1000;
   [[meshA, BATTLE.a], [meshB, BATTLE.b]].forEach(([mesh, f]) => {
     const target = f.special ? 1 : 0;
-    if (f.glow == null) f.glow = 0;
-    f.glow += (target - f.glow) * 0.22; // ease toward target
+    f.glow += (target - f.glow) * 0.22;
     if (f.glow < 0.001) f.glow = 0;
     setBeyGlow(mesh, f.glow, now);
   });
-  // Per-bey special VFX, driven by the same eased glow envelope.
-  const vdt = vfxLastT ? Math.min(0.05, now - vfxLastT) : 1 / 60;
-  vfxLastT = now;
-  if (specialVfxA) specialVfxA.update(BATTLE.a, BATTLE.b, now, vdt);
-  if (specialVfxB) specialVfxB.update(BATTLE.b, BATTLE.a, now, vdt);
-  // Base-move VFX envelope: lit while the base boost is active (or, for Draciel, while
-  // its shell guard is up). Wolborg's shard VFX reads the projectiles directly.
-  [BATTLE.a, BATTLE.b].forEach((f) => {
-    const active = (f.boostTimer > 0 && f.boostSource === 'base') || f.guardTimer > 0;
-    if (f.baseGlow == null) f.baseGlow = 0;
-    f.baseGlow += ((active ? 1 : 0) - f.baseGlow) * 0.3;
-    if (f.baseGlow < 0.001) f.baseGlow = 0;
-  });
-  if (baseVfxA) baseVfxA.update(BATTLE.a, BATTLE.b, now, vdt);
-  if (baseVfxB) baseVfxB.update(BATTLE.b, BATTLE.a, now, vdt);
   updateCamera();
-  if (renderer3d) renderer3d.render(scene3d, camera3d);
+  if (window.FX && FX.ready) {
+    FX.update(BATTLE, dt || 1 / 60, now);
+    FX.render();
+  } else if (renderer3d) {
+    renderer3d.render(scene3d, camera3d);
+  }
+  BATTLE.events.length = 0;
 }
 
 function endBattle(winnerF, loserF, reason) {
   BATTLE.ended = true;
+  if (BATTLE.sim) { BATTLE.result = { winner: winnerF, reason }; return; }
   battleGen++;                       // invalidate the running loop
   cancelAnimationFrame(battleRafId);
   const winnerBey = winnerF.bey, loserBey = loserF.bey;
@@ -2215,6 +2116,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Prime motion sensors on the very first tap anywhere (iOS needs a user gesture).
   // This gets motion-sensor events flowing well before the user calibrates.
   document.addEventListener('pointerdown', () => { requestTiltPermission(); }, { once: true });
+  // Every tap keeps the audio engine unlocked (phones suspend it in the background).
+  document.addEventListener('pointerdown', () => { unlockAudio(); }, { passive: true });
   // Try to lock to landscape on mobile (best-effort; browsers may ignore unless in
   // fullscreen). The CSS overlay still prompts the user to rotate if not landscape.
   if (screen.orientation && screen.orientation.lock) {
@@ -2258,7 +2161,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if ($('btn-base').disabled) return;
     const player = BATTLE.a.isPlayer ? BATTLE.a : BATTLE.b;
     const ai = player === BATTLE.a ? BATTLE.b : BATTLE.a;
-    triggerBaseMove(player, ai);
+    triggerBaseMove(player, ai, 0);
   }
   function fireSpecial(ev) {
     ev.preventDefault();
@@ -2266,7 +2169,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if ($('btn-special').disabled) return;
     const player = BATTLE.a.isPlayer ? BATTLE.a : BATTLE.b;
     const ai = player === BATTLE.a ? BATTLE.b : BATTLE.a;
-    triggerSpecialMove(player, ai);
+    if (player.special && player.special.kind === 'claw') clawPress(player);
+    else triggerSpecialMove(player, ai);
   }
   $('btn-base').addEventListener('pointerdown', fireBase);
   $('btn-special').addEventListener('pointerdown', fireSpecial);
@@ -2334,6 +2238,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Live readout on the start screen so the user can SEE sensors are detected and which
   // way the bey will move. We temporarily enable tilt + auto-calibrate for the preview.
   const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+  if (!isTouchDevice) $('start-tilt-status').textContent = GAME_VERSION;   // PC: show the build too
   if (isTouchDevice) {
     requestTiltPermission();
     let previewCalibrated = false;
@@ -2352,7 +2257,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = 'v29 · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = GAME_VERSION + ' · Motion ✓  ' + arrow + '   (tap Start)';
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));

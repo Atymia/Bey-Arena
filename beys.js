@@ -1,8 +1,9 @@
 // beys.js — Bey roster data.
 // Stats are 1-10. "type" drives AI movement personality (attack/defense/stamina/balance),
-// mirroring how the series usually characterizes each bey. Colors/shapes in game.js are
-// abstract placeholders meant to be swapped for your own art/models later. Move names are
-// original, anime-flavored re-imaginings rather than exact lines from the show.
+// mirroring how the series usually characterizes each bey. Stats shape how a bey MOVES
+// (speed, mass, endurance); damage comes from how well each hit is landed (see game.js).
+// Each bey's base/special mechanics live in game.js (triggerBaseMove / stepSpecial);
+// move names here are original, anime-flavored re-imaginings.
 
 const BEY_ROSTER = [
   {
@@ -14,8 +15,8 @@ const BEY_ROSTER = [
     emblem: 'spiral',
     stats: { attack: 9, defense: 3, stamina: 4, speed: 9 },
     moves: {
-      base: { name: 'Quick Gust', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Hurricane Fury', power: 2.2, charge: 11, cooldown: 13, duration: 2.0 }
+      base: { name: 'Gale Trail', power: 1.3, charge: 3, cooldown: 6, duration: 0.6 },
+      special: { name: 'Sky Tornado', power: 2.0, charge: 7, cooldown: 10, duration: 2.0 }
     }
   },
   {
@@ -27,8 +28,8 @@ const BEY_ROSTER = [
     emblem: 'flame',
     stats: { attack: 8, defense: 4, stamina: 5, speed: 8 },
     moves: {
-      base: { name: 'Flame Beak', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Blazing Phoenix Wings', power: 2.0, charge: 11, cooldown: 13, duration: 2.0 }
+      base: { name: 'Flame Arc', power: 1.4, charge: 3, cooldown: 6, duration: 0.6 },
+      special: { name: 'Phoenix Dive', power: 2.0, charge: 7, cooldown: 10, duration: 2.0 }
     }
   },
   {
@@ -40,8 +41,8 @@ const BEY_ROSTER = [
     emblem: 'flame-dark',
     stats: { attack: 10, defense: 2, stamina: 5, speed: 8 },
     moves: {
-      base: { name: 'Dark Claw', power: 1.4, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Black Phoenix Eclipse', power: 2.4, charge: 11, cooldown: 13, duration: 2.0 }
+      base: { name: 'Dark Claw', power: 1.4, charge: 3, cooldown: 6, duration: 0.6 },
+      special: { name: 'Eclipse Drain', power: 2.0, charge: 7, cooldown: 10, duration: 2.0 }
     }
   },
   {
@@ -53,8 +54,8 @@ const BEY_ROSTER = [
     emblem: 'stripes',
     stats: { attack: 7, defense: 5, stamina: 6, speed: 8 },
     moves: {
-      base: { name: 'Lightning Paw', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'White Tiger Roar', power: 2.0, charge: 11, cooldown: 13, duration: 2.0 }
+      base: { name: 'Twin Pounce', power: 1.2, charge: 3, cooldown: 6, duration: 0.6 },
+      special: { name: 'Thunder Claw', power: 2.0, charge: 7, cooldown: 10, duration: 2.0 }
     }
   },
   {
@@ -66,8 +67,8 @@ const BEY_ROSTER = [
     emblem: 'hex',
     stats: { attack: 4, defense: 10, stamina: 7, speed: 3 },
     moves: {
-      base: { name: 'Iron Shell', power: 1.15, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Abyssal Wall', power: 2.0, charge: 11, cooldown: 13, duration: 2.0 }
+      base: { name: 'Iron Shell', power: 1.0, charge: 3, cooldown: 5, duration: 0.6 },
+      special: { name: 'Maelstrom', power: 2.0, charge: 7, cooldown: 10, duration: 2.0 }
     }
   },
   {
@@ -77,10 +78,10 @@ const BEY_ROSTER = [
     type: 'stamina',
     colors: { primary: '#5a6068', secondary: '#3e434a', bit: '#f2c829' },
     emblem: 'snowflake',
-    stats: { attack: 5, defense: 6, stamina: 9, speed: 7 },
+    stats: { attack: 4, defense: 6, stamina: 10, speed: 5 },
     moves: {
-      base: { name: 'Glacial Bite', power: 1.10, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Pack Blizzard', power: 2.0, charge: 11, cooldown: 15, duration: 2.0 }
+      base: { name: 'Frost Howl', power: 1.0, charge: 3, cooldown: 7, duration: 0.6 },
+      special: { name: 'White Blizzard', power: 2.0, charge: 7, cooldown: 10, duration: 2.0 }
     }
   },
   {
@@ -90,10 +91,10 @@ const BEY_ROSTER = [
     type: 'balance',
     colors: { primary: '#1a1a1d', secondary: '#0c0c0e', bit: '#f2c829' },
     emblem: 'sunburst',
-    stats: { attack: 8, defense: 7, stamina: 7, speed: 6 },
+    stats: { attack: 6, defense: 7, stamina: 7, speed: 5 },
     moves: {
-      base: { name: 'Golden Bolt', power: 1.3, charge: 5, cooldown: 8, duration: 0.6 },
-      special: { name: 'Olympus Judgment', power: 2.3, charge: 11, cooldown: 13, duration: 2.0 }
+      base: { name: 'Mirror Guard', power: 1.15, charge: 3, cooldown: 7, duration: 0.6 },
+      special: { name: 'Dark Dimension', power: 2.0, charge: 7, cooldown: 10, duration: 2.0 }
     }
   }
 ];
