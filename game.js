@@ -978,7 +978,7 @@ function startBattleLoop() {
 // ---------------------------------------------------------------
 // Small helpers shared by moves and AI
 // ---------------------------------------------------------------
-const GAME_VERSION = 'v41'; // shown on the start screen: check it after uploading
+const GAME_VERSION = 'v42'; // shown on the start screen: check it after uploading
 const AI_SKILL = 0.55; // the CPU's skill in normal play (0 = sloppy, 1 = sharp)
 let AI_STYLE_OVERRIDE = null; // testing only: force one movement style for every CPU
 // Every visual event also gets its sound: plain clashes and walls use hit.mp3,
