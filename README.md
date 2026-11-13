@@ -150,9 +150,8 @@ To publish your own copy on GitHub Pages, go to **Settings → Pages**, choose *
 - [ ] Real 3D models for each top
 - [ ] More tops
 - [ ] Offline play
-- [ ] Online play (1v1, battle royal)
 - [ ] Sound effect based on spinner
-- [ ] Account system
+- [ ] Account system to connect devices(1v1, battle royal)
 
 
 ## Credits
