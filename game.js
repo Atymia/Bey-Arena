@@ -925,8 +925,8 @@ function initBattleState(beyA, beyB, playerIsA, opts) {
     camera3d.lookAt(0, 0, -ARENA.r * 0.18);
   }
   if (scene3d) {
-    if (meshA) scene3d.remove(meshA);
-    if (meshB) scene3d.remove(meshB);
+    // free the old models' geometry (materials stay, so their shaders stay compiled)
+    [meshA, meshB].forEach((m) => { if (!m) return; scene3d.remove(m); m.traverse((n) => { if (n.geometry) n.geometry.dispose(); }); });
     meshA = buildBeyMesh(beyA);
     meshB = buildBeyMesh(beyB);
     scene3d.add(meshA);
@@ -977,7 +977,7 @@ function startBattleLoop() {
 // ---------------------------------------------------------------
 // Small helpers shared by moves and AI
 // ---------------------------------------------------------------
-const GAME_VERSION = 'v44'; // shown on the start screen, handy to check an update went live
+const GAME_VERSION = 'v45'; // shown on the start screen, handy to check an update went live
 const AI_SKILL = 0.55; // the CPU's skill in normal play (0 = sloppy, 1 = sharp)
 let AI_STYLE_OVERRIDE = null; // for testing: force the same movement style on every CPU
 // Every event gets a sound too: clashes and walls use hit.mp3, the moves use

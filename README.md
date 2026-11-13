@@ -109,7 +109,7 @@ Then open it from the new icon. A few things worth knowing:
 ## Feedback
 
 Bug reports and ideas are very welcome. You can open an issue in the [Issues](https://github.com/Atymia/Bey-Arena/issues) tab. It helps a lot if you mention:
-- the version number on the start screen (e.g. `v44`),
+- the version number on the start screen (e.g. `v45`),
 - your device and browser (e.g. *iPhone 15, Safari* or *Windows, Chrome*),
 - what happened, and which tops were fighting.
 

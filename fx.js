@@ -309,7 +309,7 @@
       this.glow.material.opacity = this.a * 0.55;
       this.core.visible = this.glow.visible = this.a > 0.01;
     }
-    dispose() { this.core.geometry.dispose(); this.glow.geometry.dispose(); this.core.material.dispose(); this.glow.material.dispose(); }
+    dispose() { this.core.geometry.dispose(); this.glow.geometry.dispose(); }
   }
 
   // ---------------------------------------------------------------
@@ -361,6 +361,12 @@
       } catch (e) { bloomComposer = finalComposer = bloom = mixPass = null; }
     }
     FX.resize();
+    // Run the glow passes once now, so their shaders are ready before the first special.
+    if (finalComposer) {
+      try {
+        C.layers.set(BLOOM_LAYER); bloomComposer.render(); C.layers.set(0); finalComposer.render();
+      } catch (e) { C.layers.set(0); }
+    }
     FX.ready = true;
   };
   FX.resize = function () {
@@ -411,8 +417,11 @@
     m.renderOrder = 15;
     return m;
   }
+  // Only geometries are freed. Materials are left alone on purpose: disposing one also
+  // throws away its compiled shader once nothing else uses it, and compiling it again
+  // the next time the move is used is what made the game freeze for a moment.
   function disposeTree(o) {
-    o.traverse((n) => { if (n.geometry) n.geometry.dispose(); if (n.material) n.material.dispose(); });
+    o.traverse((n) => { if (n.geometry) n.geometry.dispose(); });
   }
 
   // ---------------------------------------------------------------
@@ -523,7 +532,7 @@
         for (const tr of BATTLE.trails) if (tr.owner === f && !ribbons.find((r) => r.tr === tr)) ribbons.push(ribbonFor(tr));
         for (let k = ribbons.length - 1; k >= 0; k--) {
           const r = ribbons[k];
-          if (!BATTLE.trails.includes(r.tr)) { g.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose(); ribbons.splice(k, 1); continue; }
+          if (!BATTLE.trails.includes(r.tr)) { g.remove(r.m); r.m.geometry.dispose(); ribbons.splice(k, 1); continue; }
           const pts = r.tr.pts, n = Math.min(pts.length, r.max);
           const pos = r.m.geometry.attributes.position.array, uv = r.m.geometry.attributes.uv.array;
           for (let i = 0; i < r.max; i++) {
@@ -584,7 +593,7 @@
             life: 0.8, size: 14, size1: 34, color: 0xe6ecf5, alpha: 0.5, drag: 2.5 });
         }
       },
-      dispose() { for (const r of ribbons) g.remove(r.m); disposeTree(g); root.remove(g); }
+      dispose() { for (const r of ribbons) { g.remove(r.m); r.m.geometry.dispose(); } disposeTree(g); root.remove(g); }
     };
   }
 
@@ -946,7 +955,7 @@
         for (const w of BATTLE.waves) if (w.owner === f && !arcs.find((a) => a.w === w)) arcs.push(arcFor(w));
         for (let k = arcs.length - 1; k >= 0; k--) {
           const a = arcs[k];
-          if (!BATTLE.waves.includes(a.w)) { g.remove(a.m); a.m.geometry.dispose(); a.m.material.dispose(); arcs.splice(k, 1); continue; }
+          if (!BATTLE.waves.includes(a.w)) { g.remove(a.m); a.m.geometry.dispose(); arcs.splice(k, 1); continue; }
           const front = a.w.len * Math.min(1, a.w.t / a.w.dur);
           a.m.position.set(a.w.x, 2, a.w.y);
           a.m.rotation.z = -a.w.ang;
@@ -998,7 +1007,7 @@
         if (e.type === 'howlHit') generic.sparks(e.x, e.y, 10, 16, [0xffffff, 0xbfe6ff], 120, 0.4, 5);
         if (e.type === 'special' && e.f === f) { generic.wave(f.x, f.y, 260, 0xdff6ff, 0.7); FX.shake(2); }
       },
-      dispose() { for (const a of arcs) g.remove(a.m); disposeTree(g); root.remove(g); }
+      dispose() { for (const a of arcs) { g.remove(a.m); a.m.geometry.dispose(); } disposeTree(g); root.remove(g); }
     };
   }
 
@@ -1113,7 +1122,27 @@
     markBloom(root);
     // the bit's halo and beam on each bey glow too
     [meshA, meshB].forEach((m) => { const gl = m && m.userData.glow; if (gl) { gl.halo.layers.enable(BLOOM_LAYER); gl.beam.layers.enable(BLOOM_LAYER); } });
+    warmUp();
   };
+
+  // Compile every shader the battle can need right now, while the battle is starting,
+  // instead of the first time a move shows up. Compiling a shader blocks the game, so
+  // doing it mid-fight is what caused the stutter when a move was used.
+  function warmUp() {
+    try {
+      R.compile(S, C);
+      // When the glow is on, the scene is drawn twice into off-screen buffers: once
+      // normally and once with only the glowing effects and no lights. Each of those
+      // needs its own version of the shaders, so compile them as well.
+      if (bloomComposer) {
+        const prev = R.getRenderTarget();
+        R.setRenderTarget(bloomComposer.renderTarget1);
+        R.compile(S, C);
+        C.layers.set(BLOOM_LAYER); R.compile(S, C); C.layers.set(0);
+        R.setRenderTarget(prev);
+      }
+    } catch (e) { C.layers.set(0); /* not fatal: shaders will compile on first use */ }
+  }
 
   FX.update = function (battle, dt, t) {
     dimTarget = 0;
