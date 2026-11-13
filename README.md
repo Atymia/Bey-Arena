@@ -152,6 +152,8 @@ To publish your own copy on GitHub Pages, go to **Settings → Pages**, choose *
 - [ ] Offline play
 - [ ] Online play (1v1, battle royal)
 - [ ] Sound effect based on spinner
+- [ ] Account system
+
 
 ## Credits
 
