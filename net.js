@@ -10,7 +10,7 @@
   const PEERJS_URL = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js';
   const ID_PREFIX = 'lobo-room-';
   const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // no 0/O/1/I/L
-  const SNAPSHOT_HZ = 30;
+  const SNAPSHOT_HZ = 20;
   const INPUT_HZ = 30;
   const LOST_AFTER = 8000;        // ms without messages = connection lost
   const MAX_FAIR_DELAY = 120;     // ms, max delay added to the host
@@ -30,6 +30,8 @@
   window.NET = NET;
 
   let lastHeard = 0, pingTimer = null, watchTimer = null;
+  // debug line under VS: ping, direct/relay, messages per second, input strength, last error
+  const stats = { rx: 0, tx: 0, rxRate: 0, txRate: 0, route: '', lastSnap: 0, err: '', tick: 0 };
   let snapAcc = 0, inputAcc = 0, outEvents = [];
   let delayLine = [];    // host input, played back with the delay
   let nextObjId = 1;
@@ -48,7 +50,54 @@
     return c;
   }
   function send(msg) {
-    if (NET.conn && NET.conn.open) { try { NET.conn.send(msg); } catch (e) { /* ignore */ } }
+    if (NET.conn && NET.conn.open) { try { NET.conn.send(msg); stats.tx++; } catch (e) { showError(e); } }
+  }
+  // too much still waiting to go out -> skip this update instead of piling up stale ones
+  function channelBusy() {
+    const c = NET.conn;
+    if (!c) return true;
+    const dc = c.dataChannel;
+    return (dc && dc.bufferedAmount > 32000) || (c._buffer && c._buffer.length > 2);
+  }
+  let lastErrSent = 0;
+  function showError(e) {
+    stats.err = String((e && e.message) || e).slice(0, 80);
+    console.error('[versus]', e);
+    if (performance.now() - lastErrSent > 3000 && NET.conn && NET.conn.open) {
+      lastErrSent = performance.now();
+      try { NET.conn.send({ t: 'err', msg: stats.err }); } catch (x) { /* ignore */ }
+    }
+  }
+  function diag() {
+    if (!BATTLE || !BATTLE.online) return;
+    const parts = [];
+    if (NET.rtt) parts.push(NET.rtt + ' ms');
+    if (stats.route) parts.push(stats.route);
+    parts.push('↓' + stats.rxRate + '/s');
+    if (NET.role === 'host' && BATTLE.b.remote) parts.push('opp ' + Math.hypot(BATTLE.b.remote.x, BATTLE.b.remote.y).toFixed(1));
+    if (NET.role === 'guest') {
+      const v = tiltEnabled ? tiltVector : joystickVector;
+      parts.push((tiltEnabled ? 'tilt ' : 'stick ') + Math.hypot(v.x, v.y).toFixed(1));
+      if (stats.lastSnap && performance.now() - stats.lastSnap > 1500) parts.push('no data from host');
+    }
+    if (stats.err) parts.push('⚠ ' + stats.err);
+    const el = $('net-ping');
+    el.textContent = parts.join(' · ');
+    el.classList.toggle('net-bad', !!stats.err || (NET.role === 'guest' && stats.lastSnap && performance.now() - stats.lastSnap > 1500));
+  }
+  // direct or through the relay server, from the WebRTC stats
+  function checkRoute() {
+    const pc = NET.conn && NET.conn.peerConnection;
+    if (!pc || !pc.getStats) return;
+    pc.getStats().then((rep) => {
+      let pair = null;
+      rep.forEach((r) => { if (r.type === 'transport' && r.selectedCandidatePairId) pair = rep.get(r.selectedCandidatePairId); });
+      if (!pair) rep.forEach((r) => { if (r.type === 'candidate-pair' && r.state === 'succeeded' && (r.nominated || r.selected)) pair = r; });
+      if (!pair) return;
+      const local = rep.get(pair.localCandidateId), remote = rep.get(pair.remoteCandidateId);
+      const relay = (local && local.candidateType === 'relay') || (remote && remote.candidateType === 'relay');
+      stats.route = relay ? 'relay' : 'direct';
+    }).catch(() => {});
   }
   function fairDelay() { return NET.role === 'host' ? Math.min(MAX_FAIR_DELAY, NET.rtt) : 0; }
 
@@ -160,14 +209,18 @@
       startTimers();
       goToPick();
     });
-    conn.on('data', onMessage);
+    conn.on('data', (m) => { try { onMessage(m); } catch (e) { showError(e); } });
     conn.on('close', () => { if (NET.connected) connectionLost(); });
     conn.on('error', () => { if (NET.connected) connectionLost(); });
   }
 
   function startTimers() {
     stopTimers();
-    pingTimer = setInterval(() => { send({ t: 'ping', ts: performance.now(), rtt: NET.rtt }); }, 1000);
+    pingTimer = setInterval(() => {
+      send({ t: 'ping', ts: performance.now(), rtt: NET.rtt });
+      stats.rxRate = stats.rx; stats.txRate = stats.tx; stats.rx = stats.tx = 0;
+      if (stats.tick++ % 3 === 0) checkRoute();
+    }, 1000);
     watchTimer = setInterval(() => {
       if (NET.connected && performance.now() - lastHeard > LOST_AFTER) connectionLost();
     }, 1000);
@@ -229,6 +282,7 @@
     if (NET.role === 'host') BATTLE.b.remote = { x: 0, y: 0 };
     snapAcc = inputAcc = 0; outEvents = []; delayLine = []; guestSpecials.clear(); guestObjs.clear();
     NET.remotePaused = false;
+    stats.err = ''; stats.lastSnap = 0;
     $('set-score').textContent = `${NET.score.me} - ${NET.score.them}`;
     $('net-ping').textContent = '';
     showScreen('battle');
@@ -238,10 +292,12 @@
 
   // host: grab the events every frame, send state at 30Hz
   NET.afterHostUpdate = function (dt) {
-    for (const e of BATTLE.events) outEvents.push(packEvent(e));
-    snapAcc += dt;
-    if (snapAcc >= 1 / SNAPSHOT_HZ) { snapAcc = 0; sendSnapshot(); }
-    $('net-ping').textContent = NET.rtt ? NET.rtt + ' ms' : '';
+    try {
+      for (const e of BATTLE.events) outEvents.push(packEvent(e));
+      snapAcc += dt;
+      if (snapAcc >= 1 / SNAPSHOT_HZ && !channelBusy()) { snapAcc = 0; sendSnapshot(); }
+    } catch (e) { showError(e); }
+    diag();
   };
 
   NET.delayedInput = function (v) {
@@ -330,20 +386,24 @@
     guestLast = performance.now();
     const step = (t) => {
       if (myGen !== battleGen || !BATTLE || BATTLE.ended) return;
-      const dt = Math.min(0.05, (t - guestLast) / 1000);
+      battleRafId = requestAnimationFrame(step);   // first, so an error below can't stop the loop
+      const dt = Math.max(0, Math.min(0.05, (t - guestLast) / 1000));
       guestLast = t;
       const me = BATTLE.b;
-      // send input (+ upright = pause)
-      const upright = phoneUpright();
-      if (tiltEnabled) updateTiltVector();
-      const v = upright ? { x: 0, y: 0 } : (tiltEnabled ? tiltVector : joystickVector);
-      inputAcc += dt;
-      if (inputAcc >= 1 / INPUT_HZ) { inputAcc = 0; send({ t: 'i', x: r2(v.x), y: r2(v.y), p: upright ? 1 : 0 }); }
-      guestAdvance(dt);
-      if (BATTLE.hitStop > 0) { BATTLE.hitStop -= dt; renderBattle(dt * 0.15); } else renderBattle(dt);
-      updateBattleHud(me);
-      $('net-ping').textContent = NET.rtt ? NET.rtt + ' ms' : '';
-      battleRafId = requestAnimationFrame(step);
+      try {
+        // send input (+ upright = pause)
+        const upright = phoneUpright();
+        if (tiltEnabled) updateTiltVector();
+        const v = upright ? { x: 0, y: 0 } : (tiltEnabled ? tiltVector : joystickVector);
+        inputAcc += dt;
+        if (inputAcc >= 1 / INPUT_HZ && !channelBusy()) { inputAcc = 0; send({ t: 'i', x: r2(v.x), y: r2(v.y), p: upright ? 1 : 0 }); }
+      } catch (e) { showError(e); }
+      try {
+        guestAdvance(dt);
+        if (BATTLE.hitStop > 0) { BATTLE.hitStop -= dt; renderBattle(dt * 0.15); } else renderBattle(dt);
+        updateBattleHud(me);
+      } catch (e) { showError(e); }
+      diag();
     };
     battleRafId = requestAnimationFrame(step);
   }
@@ -431,6 +491,7 @@
   function onMessage(m) {
     if (!m || typeof m !== 'object') return;
     lastHeard = performance.now();
+    stats.rx++;
     switch (m.t) {
       case 'hello':
         if (m.v !== GAME_VERSION) {
@@ -460,7 +521,11 @@
         beginOnlineBattle(m.host, m.guest);
         break;
       case 's':              // guest
+        stats.lastSnap = performance.now();
         applySnapshot(m);
+        break;
+      case 'err':
+        stats.err = 'opp: ' + m.msg;
         break;
       case 'i':              // host
         if (BATTLE && BATTLE.online === 'host' && BATTLE.b.remote) {

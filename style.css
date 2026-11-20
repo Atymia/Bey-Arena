@@ -361,7 +361,14 @@ main { flex: 1; padding: 0 18px 28px; }
 .online-player-bey { display: block; font-weight: 700; margin-top: 2px; }
 .online-status { text-align: center; color: var(--text-dim); font-size: 14px; min-height: 1.4em; margin: 10px 0 0; }
 .online-status.error { color: var(--crimson); }
-.net-ping { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.vs-col { position: relative; }
+.net-ping {
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 4px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); white-space: nowrap;
+  background: rgba(11, 14, 19, 0.6); border-radius: 6px; padding: 1px 6px; pointer-events: none;
+}
+.net-ping:empty { display: none; }
+.net-ping.net-bad { color: var(--crimson); }
 
 /* the hidden attribute must win over display rules like .btn or grid */
 [hidden] { display: none !important; }

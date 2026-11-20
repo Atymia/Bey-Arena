@@ -43,11 +43,11 @@ Every top has two moves:
 
 | Spinner | Base move | Special move |
 |---|---|---|
-| **Dragoon** | **Wind Strike** – a dash that leaves a gust of wind behind; crossing it blows the rival sideways | **Sky Tornado** – a tornado follows Dragoon, lifts the rival up and throws it wherever you steer |
-| **Dranzer** | **Fire Strike** – a dash that curves around towards the rival | **Fire Phoneix** – Dranzer flies up, you aim a target on the ground and it dives. If the rival dodges, Dranzer is left stunned |
+| **Dragoon** | **Gale Trail** – a dash that leaves a gust of wind behind; crossing it blows the rival sideways | **Sky Tornado** – a tornado follows Dragoon, lifts the rival up and throws it wherever you steer |
+| **Dranzer** | **Flame Arc** – a dash that curves around towards the rival | **Phoenix Dive** – Dranzer flies up, you aim a target on the ground and it dives. If the rival dodges, Dranzer is left stunned |
 | **Black Dranzer** | **Dark Claw** – the strongest dash, but a miss costs Black Dranzer some of its own spin | **Eclipse Drain** – a dark sphere that drains the rival's spin and gives it to Black Dranzer |
 | **Driger** | **Twin Pounce** – two dashes in a row; you can re-aim the second one | **Thunder Claw** – three lunges. Tap in rhythm with the closing ring to make them land perfectly |
-| **Draciel** | **Iron Shell** – blocks most of the damage. Raise it right before a hit and it **parries**, sending the damage back | **Water Field** – Draciel anchors itself inside a whirlpool that pulls the rival in and slows it down |
+| **Draciel** | **Iron Shell** – blocks most of the damage. Raise it right before a hit and it **parries**, sending the damage back | **Maelstrom** – Draciel anchors itself inside a whirlpool that pulls the rival in and slows it down |
 | **Wolborg** | **Frost Howl** – a cone of cold in front of Wolborg that slows whoever it touches | **White Blizzard** – the whole stadium freezes. The rival slides around, and if Wolborg touches it, it's sealed in ice |
 | **Zeus** | **Mirror Guard** – soaks up a hit, then fires it back with a dash | **Dark Dimension** – half of every hit on Zeus bounces back, and lightning strikes where the rival is standing |
 
@@ -114,7 +114,7 @@ Then open it from the new icon. A few things worth knowing:
 ## Feedback
 
 Bug reports and ideas are very welcome. You can open an issue in the [Issues](https://github.com/Atymia/Bey-Arena/issues) tab. It helps a lot if you mention:
-- the version number on the start screen (e.g. `v46`),
+- the version number on the start screen (e.g. `v47`),
 - your device and browser (e.g. *iPhone 15, Safari* or *Windows, Chrome*),
 - what happened, and which tops were fighting.
 
@@ -168,7 +168,6 @@ If you want to tinker:
 - [x] Versus mode (phone vs phone)
 - [ ] Offline play
 - [ ] Music
-- [ ] Account system to play pvp
 
 ## Credits
 
