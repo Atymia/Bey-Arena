@@ -1,4 +1,4 @@
-// game.js: the core of Lobo (menus, physics, combat, CPU, controls and the 3D scene).
+// game.js: the core of Lobo (menus, physics, combat, CPU, controls and the 3D scene)
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -15,10 +15,9 @@ const ARENA = { cx: 0, cy: 0, r: 260 };
 const BEY_R = 16;
 const MATCH_TIME_LIMIT = 60;        // seconds per single game
 
-// --- Combat tuning ------------------------------------------------------------
-// Spin is the bey's health, from 1 down to 0. How much a hit takes depends on how it
-// lands (impact speed, who drove into whom, timing of the moves), not on the stats.
-// Stats only shift things by a few percent; mostly they change how a bey moves.
+// --- Combat tuning ---
+// spin = health (1 -> 0). Damage comes from how you hit (speed, who rams who, timing),
+// stats only nudge it a few %. Stats are mostly about how the bey moves
 const MAX_SPIN_LIFE = 1.0;
 const SPIN_DECAY = 0.038;           // base decay per second
 const STABLE_SPIN = 0.10;           // above this, decay is gentle; below, it speeds up
@@ -36,7 +35,7 @@ const WALL_SPIN_LOSS_MIN = 0.02;
 const WALL_SPIN_LOSS_MAX = 0.05;
 
 function stat100(v) { return v * 10; }
-// Each stat becomes a small multiplier around 1.0 (a stat of 5.5 gives exactly 1.0).
+// each stat becomes a small multiplier around 1.0 (a stat of 5.5 gives exactly 1.0)
 function statMod(v, per) { return 1 + (v - 5.5) * per; }
 function atkCombatMult(atk) { return statMod(atk, 0.018); }  // damage dealt   ~0.92..1.08
 function spinDefMult(def) { return statMod(def, 0.018); }    // damage taken / ~0.92..1.08
@@ -45,24 +44,20 @@ function defMult(def) { return statMod(def, 0.05); }         // knockback resist
 function staMult(sta) { return statMod(sta, -0.02); }        // natural decay rate ~1.09..0.91
 function steerAccel(f) { return 245 + f.bey.stats.speed * 5; }   // ~250..295
 function maxSpeedOf(f) { return 142 + f.bey.stats.speed * 4; }   // ~146..182
-// Spin lost in a collision at a given closing speed (before who-hit-whom and stats).
+// spin lost in a collision at a given closing speed (before who-hit-whom and stats)
 function impactLoss(closing) {
   const t = clamp01(closing / HIT_FULL_CLOSING);
   return MIN_SPIN_LOSS + HIT_MAX * Math.pow(t, 1.25);
 }
-// Move damage scaled by the attacker's attack and the defender's defense.
+// move damage scaled by the attacker's attack and the defender's defense
 function scaled(att, def, amount) {
   return amount * atkCombatMult(att.bey.stats.attack) / spinDefMult(def.bey.stats.defense);
 }
-// No type advantage on damage anymore: the types show in how the beys play
-// (attackers push, defenders parry, stamina types last longer).
+// type advantage removed from damage, types now just change how each bey plays
 const TYPE_BEATS = { attack: 'stamina', stamina: 'defense', defense: 'attack' };
 function typeAdvantage() { return 1; }
 
-// ---------------------------------------------------------------
-// Simple flat icons for the 2D cards (selection and champion screens).
-// The arena uses the 3D models further down.
-// ---------------------------------------------------------------
+// --- 2D icons for the cards (select + champion screens) ---
 function drawBeyIcon(ctx, bey, cx, cy, r, angle) {
   ctx.save();
   ctx.translate(cx, cy);
@@ -155,9 +150,7 @@ function drawSunburst(ctx, r) {
   }
 }
 
-// ---------------------------------------------------------------
-// Selection screen
-// ---------------------------------------------------------------
+// --- Selection screen ---
 const GAME = {
   mode: 'tournament',          // 'tournament' | 'single'
   selectionPhase: 'player',    // for single battle: 'player' then 'opponent'
@@ -189,9 +182,7 @@ function cycleCarousel(dir) {
 }
 const TYPE_LABEL = { attack: 'Attack', defense: 'Defense', stamina: 'Stamina', balance: 'Balance' };
 
-// ---------------------------------------------------------------
-// Tournament bracket (single elimination, each match best-of-3)
-// ---------------------------------------------------------------
+// --- Tournament bracket (knockout, best of 3) ---
 function buildFirstRound(list) {
   const shuffled = shuffle(list);
   const n = shuffled.length;
@@ -262,28 +253,32 @@ function enterMode(mode) {
 
 function updateSelectScreenForPhase() {
   if (GAME.mode === 'tournament') {
-    $('select-title').textContent = 'Choose your Bey';
-    $('btn-confirm-select').textContent = 'Enter Tournament';
+    $('select-title').textContent = 'Pick your Bey';
+    $('btn-confirm-select').textContent = 'Start Tournament';
+  } else if (GAME.mode === 'online') {
+    $('select-title').textContent = 'Pick your Bey';
+    $('btn-confirm-select').textContent = 'Ready';
   } else if (GAME.selectionPhase === 'player') {
-    $('select-title').textContent = 'Choose your Bey';
-    $('btn-confirm-select').textContent = 'Next: Pick Opponent';
+    $('select-title').textContent = 'Pick your Bey';
+    $('btn-confirm-select').textContent = 'Next';
   } else {
-    $('select-title').textContent = 'Choose your Opponent';
-    $('btn-confirm-select').textContent = 'Start Battle';
+    $('select-title').textContent = 'Pick your opponent';
+    $('btn-confirm-select').textContent = 'Fight!';
   }
 }
 
 function confirmSelection() {
   if (!GAME.selectedId) return;
+  if (GAME.mode === 'online') { if (window.NET) NET.pick(GAME.selectedId); return; }
   if (GAME.mode === 'tournament') {
     startTournament(GAME.selectedId);
     return;
   }
-  // Single battle: two-phase pick.
+  // single battle: two-phase pick
   if (GAME.selectionPhase === 'player') {
     GAME.playerBeyId = GAME.selectedId;
     GAME.selectionPhase = 'opponent';
-    // Default the opponent carousel to a different bey.
+    // default the opponent carousel to a different bey
     carouselIndex = (carouselIndex + 1) % BEY_ROSTER.length;
     updateSelectScreenForPhase();
     renderCarousel();
@@ -307,7 +302,7 @@ function renderBracketScreen() {
     .join('');
 
   const matchCount = GAME.matches.length;
-  $('round-label').textContent = matchCount === 1 ? 'Final' : matchCount === 2 ? 'Semifinal' : `Round ${GAME.round}`;
+  $('round-label').textContent = matchCount === 1 ? 'Final' : matchCount === 2 ? 'Semifinals' : `Round ${GAME.round}`;
 
   const list = $('bracket-list');
   list.innerHTML = '';
@@ -328,10 +323,10 @@ function renderBracketScreen() {
 
   const btn = $('btn-start-match');
   if (GAME.pendingMatch) {
-    btn.textContent = 'Battle';
+    btn.textContent = 'Fight';
     btn.onclick = () => beginBattleForMatch(GAME.pendingMatch);
   } else {
-    btn.textContent = GAME.matches.length === 1 ? 'See champion' : 'Continue';
+    btn.textContent = GAME.matches.length === 1 ? 'See the winner' : 'Continue';
     btn.onclick = () => proceedAfterRound();
   }
 }
@@ -359,9 +354,9 @@ function finishRemainingSilently() {
 function finalizeMatch(winnerBey, playerWon, reasonText) {
   if (GAME.mode === 'single') {
     GAME.pendingMatch = null;
-    const title = playerWon ? 'You win!' : 'You lose';
+    const title = playerWon ? 'Victory!' : 'Defeat';
     showResultScreen(title, reasonText, () => {
-      // Rematch the same pairing.
+      // rematch the same pairing
       GAME.singleMatch = newMatch(
         BEY_ROSTER.find((b) => b.id === GAME.playerBeyId),
         BEY_ROSTER.find((b) => b.id === GAME.opponentBeyId)
@@ -375,15 +370,13 @@ function finalizeMatch(winnerBey, playerWon, reasonText) {
   GAME.pendingMatch.done = true;
   GAME.pendingMatch = null;
   if (playerWon) {
-    showResultScreen('Matchup won!', reasonText, () => proceedAfterRound());
+    showResultScreen('You advance!', reasonText, () => proceedAfterRound());
   } else {
     showResultScreen('Eliminated', reasonText, () => finishRemainingSilently());
   }
 }
 
-// ---------------------------------------------------------------
-// Screen management
-// ---------------------------------------------------------------
+// --- Screen management ---
 function showScreen(name) {
   document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
   $('screen-' + name).classList.add('active');
@@ -402,7 +395,7 @@ function showChampionScreen(championBey) {
     <div class="bey-card-element">${championBey.element}</div>`;
   const note = document.createElement('p');
   note.className = 'result-text';
-  note.textContent = championBey.id === GAME.playerBeyId ? 'You won the tournament!' : `${championBey.name} takes the tournament.`;
+  note.textContent = championBey.id === GAME.playerBeyId ? 'You took the title!' : `${championBey.name} wins the tournament.`;
   wrapper.appendChild(note);
   showScreen('champion');
   requestAnimationFrame(() => {
@@ -411,9 +404,7 @@ function showChampionScreen(championBey) {
   });
 }
 
-// ---------------------------------------------------------------
-// Three.js arena + bey models
-// ---------------------------------------------------------------
+// --- Three.js arena + bey models ---
 let renderer3d = null, scene3d = null, camera3d = null;
 let meshA = null, meshB = null;
 
@@ -426,8 +417,7 @@ function initThree() {
   }
   const canvas = $('arena');
   renderer3d = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-  // Cap the pixel ratio. At full retina (2-3x) there are far more pixels to shade,
-  // and phones need that headroom for the move effects and the glow.
+  // cap the pixel ratio, full retina is too heavy on phones with the effects on
   renderer3d.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer3d.shadowMap.enabled = true;
   renderer3d.shadowMap.type = THREE.PCFShadowMap;
@@ -462,7 +452,7 @@ function initThree() {
   window.addEventListener('resize', resizeRendererToCanvas);
 }
 
-// KO pockets: the gaps in the wall where a bey can be knocked out.
+// KO pockets: the gaps in the wall where a bey can be knocked out
 const POCKET_ANGLES = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
 const POCKET_HALF_WIDTH = Math.PI / 7.5;
 const WALL_RADIUS = ARENA.r;                  // inner face of the wall ring
@@ -478,7 +468,7 @@ function isAtPocketAngle(angle, tol = 1) {
 }
 
 function buildStadium() {
-  // Outer platform: the light tiled ring the stadium sits on.
+  // outer platform: the light tiled ring the stadium sits on
   const platform = new THREE.Mesh(
     new THREE.CircleGeometry(PLATFORM_RADIUS(), 80),
     new THREE.MeshStandardMaterial({ color: 0xcfccc2, roughness: 0.7, metalness: 0.05 })
@@ -488,7 +478,7 @@ function buildStadium() {
   platform.receiveShadow = true;
   scene3d.add(platform);
 
-  // The battle floor: flat and dark, with a soft radial gradient.
+  // the battle floor: flat and dark, with a soft radial gradient
   const dish = new THREE.Mesh(
     new THREE.CircleGeometry(ARENA.r + 4, 80),
     new THREE.MeshStandardMaterial({ map: makeDishTexture(), roughness: 0.85, metalness: 0.12 })
@@ -498,7 +488,7 @@ function buildStadium() {
   dish.receiveShadow = true;
   scene3d.add(dish);
 
-  // Metal lip where the floor meets the walls.
+  // metal lip where the floor meets the walls
   const lip = new THREE.Mesh(
     new THREE.RingGeometry(ARENA.r + 1, ARENA.r + 5, 80),
     new THREE.MeshStandardMaterial({ color: 0x55585f, metalness: 0.5, roughness: 0.3 })
@@ -507,7 +497,7 @@ function buildStadium() {
   lip.position.y = 0.3;
   scene3d.add(lip);
 
-  // Raised navy wall blocks along each stretch between the KO pockets.
+  // raised navy wall blocks along each stretch between the KO pockets
   const wallMat = new THREE.MeshStandardMaterial({
     color: 0x27325a, metalness: 0.4, roughness: 0.36, emissive: 0x0b1430, emissiveIntensity: 0.15
   });
@@ -565,14 +555,13 @@ const EMBLEM_FIN_COUNT = { spiral: 3, flame: 3, 'flame-dark': 4, stripes: 3, hex
 
 function buildBeyMesh(bey) {
   const group = new THREE.Group();
-  // The body uses the bey's main color, with a slightly darker disc on top.
-  // The cap in the middle is the bit chip, with its own color.
+  // body = main color, darker disc on top, bit chip in the middle
   const bodyMat = new THREE.MeshStandardMaterial({ color: bey.colors.primary, metalness: 0.45, roughness: 0.4 });
   const discMat = new THREE.MeshStandardMaterial({ color: bey.colors.secondary, metalness: 0.4, roughness: 0.45 });
   const bitMat = new THREE.MeshStandardMaterial({ color: bey.colors.bit, metalness: 0.3, roughness: 0.4, emissive: bey.colors.bit, emissiveIntensity: 0.18 });
   const tipMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.6, roughness: 0.3 });
 
-  // The ring sits just above the tip, which touches the floor at y=0.
+  // the ring sits just above the tip, which touches the floor at y=0
   const RING_H = 10, TIP_H = 12;
   const ringY = TIP_H + RING_H / 2; // center of the ring
 
@@ -581,19 +570,19 @@ function buildBeyMesh(bey) {
   ring.castShadow = true;
   group.add(ring);
 
-  // Darker upper disc, to give the body two tones.
+  // darker upper disc, to give the body two tones
   const disc = new THREE.Mesh(new THREE.CylinderGeometry(BEY_R * 0.8, BEY_R * 0.8, 3, 24), discMat);
   disc.position.y = ringY + RING_H / 2 + 1;
   disc.castShadow = true;
   group.add(disc);
 
-  // Bit chip in the middle.
+  // bit chip in the middle
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(BEY_R * 0.4, BEY_R * 0.4, 4, 24), bitMat);
   cap.position.y = ringY + RING_H / 2 + 3;
   cap.castShadow = true;
   group.add(cap);
 
-  // The tip points down and touches the floor (y=0).
+  // the tip points down and touches the floor (y=0)
   const tip = new THREE.Mesh(new THREE.ConeGeometry(BEY_R * 0.3, TIP_H, 16), tipMat);
   tip.position.y = TIP_H / 2;
   tip.rotation.x = Math.PI; // point it down
@@ -610,14 +599,12 @@ function buildBeyMesh(bey) {
   }
   group.userData.bodyCenterY = ringY; // pivot height for leaning and toppling
 
-  // --- Special-move glow ---
-  // When a special starts, the bit chip lights up: a bright core, a small halo and a
-  // short beam of light rising out of it, like the bit-beast coming out in the show.
-  // The body itself stays unlit. It all starts switched off.
+  // --- special glow ---
+  // the bit lights up with a halo and a short beam (bit-beast style), body stays dark
   const bitColor = new THREE.Color(bey.colors.bit);
   const bitTopY = ringY + RING_H / 2 + 3; // the cap (bit) sits here
 
-  // Small additive halo around the bit chip only.
+  // small additive halo around the bit chip only
   const haloMat = new THREE.MeshBasicMaterial({
     color: bitColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false
   });
@@ -625,8 +612,7 @@ function buildBeyMesh(bey) {
   halo.position.y = bitTopY;
   group.add(halo);
 
-  // A soft beam rising out of the bit: narrow at the bottom, wider as it goes up,
-  // and kept short. Its base sits right on the bit.
+  // beam coming out of the bit, narrow at the bottom
   const beamMat = new THREE.MeshBasicMaterial({
     color: bitColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
     depthWrite: false, side: THREE.DoubleSide
@@ -637,7 +623,7 @@ function buildBeyMesh(bey) {
   beam.position.y = bitTopY + BEAM_H / 2; // the base of the cone sits on the bit
   group.add(beam);
 
-  // A point light on the bit, so the light on the floor seems to come from it.
+  // A point light on the bit, so the light on the floor seems to come from it
   const glowLight = new THREE.PointLight(bitColor, 0, BEY_R * 5);
   glowLight.position.y = bitTopY + 2;
   group.add(glowLight);
@@ -649,8 +635,7 @@ function buildBeyMesh(bey) {
   return group;
 }
 
-// Sets the special-move glow. `level` goes from 0 (off) to 1 (full). A slight pulse
-// makes it shimmer.
+// level 0..1, with a small pulse
 function setBeyGlow(mesh, level, timeSec) {
   if (!mesh || !mesh.userData.glow) return;
   const g = mesh.userData.glow;
@@ -661,7 +646,7 @@ function setBeyGlow(mesh, level, timeSec) {
   g.haloMat.opacity = 0.55 * v;                          // halo around the bit
   g.beamMat.opacity = 0.35 * v;                          // beam of light
   g.light.intensity = 1.2 * v;                           // light cast by the bit
-  // The beam grows a little with the pulse too.
+  // the beam grows a little with the pulse too
   const s = 0.9 + 0.25 * lvl + 0.08 * Math.sin(timeSec * 7);
   g.beam.scale.set(s, 1, s);
 }
@@ -677,9 +662,7 @@ const _axisX = new THREE.Vector3(1, 0, 0);
 function clamp01(t) { return Math.max(0, Math.min(1, t)); }
 function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 
-// Orientation of a spinning top: precession, then lean, then spin. The tip is at the
-// group's origin (y=0), so leaning the group pivots it on the tip and it never sinks
-// into the floor.
+// precession -> lean -> spin. Tip is at y=0 so the bey leans on its tip
 function applyTopOrientation(mesh, spinYaw, precessionDir, tiltRad) {
   _qPre.setFromAxisAngle(_axisY, precessionDir);
   _qTilt.setFromAxisAngle(_axisX, tiltRad);
@@ -691,8 +674,7 @@ function updateMeshFromFighter(mesh, f) {
   if (!mesh) return;
   const spinPct = f.spin;
 
-  // Knocked out: tip over and slide. It's lifted as it leans so the body ends up
-  // resting on the floor instead of going through it.
+  // ring out: tip over and slide (lift it so it doesn't go through the floor)
   if (f.out) {
     const tilt = Math.min(TIP_OVER_RAD, f.ringOutTimer * 4);
     if (f.precession == null) f.precession = Math.random() * Math.PI * 2;
@@ -702,7 +684,7 @@ function updateMeshFromFighter(mesh, f) {
     return;
   }
 
-  // Out of spin: topple over onto its side in about a second.
+  // out of spin: topple over onto its side in about a second
   if (spinPct <= 0.001) {
     if (f.deathT == null) { f.deathT = 0; f.precession = f.precession ?? Math.random() * Math.PI * 2; f.tipAngle = f.precession; }
     f.deathT += 1 / 60;
@@ -721,11 +703,11 @@ function updateMeshFromFighter(mesh, f) {
     f.deathT = null;
   }
 
-  // Spinning normally, on its tip (or in the air during a dive or a tornado).
+  // spinning normally, on its tip (or in the air during a dive or a tornado)
   f.liftVis += ((f.liftTarget || 0) - f.liftVis) * 0.12;
   const yOff = (f.height || 0) + f.liftVis * 24 + (f.liftVis > 0.01 ? Math.sin(performance.now() / 90) * 2 * f.liftVis : 0);
   mesh.position.set(f.x, yOff, f.y);
-  // Below 12% spin it starts to wobble, more and more as it slows down.
+  // below 12% spin it starts to wobble, more and more as it slows down
   if (!(f.frozen > 0)) f.spinYaw = (f.spinYaw || 0) + (3 + f.bey.stats.speed * 0.4) * (1 / 60);
   if (spinPct <= WOBBLE_SPIN_START) {
     if (f.precession == null) f.precession = Math.random() * Math.PI * 2;
@@ -737,7 +719,7 @@ function updateMeshFromFighter(mesh, f) {
     mesh.position.y = yOff + tipLift(tiltRad);
     applyTopOrientation(mesh, f.spinYaw, f.precession, tiltRad);
   } else if (f.liftVis > 0.05 || (f.height || 0) > 1) {
-    // In the air (tornado or dive): a tilted, swaying spin makes that clear.
+    // in the air (tornado or dive): a tilted, swaying spin makes that clear
     if (f.precession == null) f.precession = 0;
     f.precession += 6 * (1 / 60);
     applyTopOrientation(mesh, f.spinYaw, f.precession, 0.32 * Math.max(f.liftVis, f.height > 1 ? 0.6 : 0));
@@ -747,8 +729,7 @@ function updateMeshFromFighter(mesh, f) {
   }
 }
 
-// How much to raise a leaning bey so its body stays above the floor. Lying flat,
-// that's about its radius.
+// how much to lift a leaning bey so it stays above the floor
 function tipLift(tilt) {
   return Math.sin(tilt) * BEY_R * 0.95;
 }
@@ -760,7 +741,7 @@ function updateCamera() {
   const player = a.isPlayer ? a : b;
   const ai = a.isPlayer ? b : a;
 
-  // Keep the beys in view; if one is falling out, follow it.
+  // keep the beys in view; if one is falling out, follow it
   const falling = (a.out ? a : null) || (b.out ? b : null);
   let focusX, focusZ, targetCamY, targetCamZ, lookY;
   if (falling) {
@@ -769,7 +750,7 @@ function updateCamera() {
     targetCamZ = ARENA.r * 1.5;
     lookY = -ARENA.r * 0.2;
   } else {
-    // Lean the framing toward the player's bey a bit more than the rival's.
+    // lean the framing toward the player's bey a bit more than the rival's
     focusX = player.x * 0.62 + ai.x * 0.38;
     focusZ = player.y * 0.62 + ai.y * 0.38;
     targetCamY = ARENA.r * 1.85;   // higher and further back, to see more of the stadium
@@ -778,8 +759,7 @@ function updateCamera() {
   }
 
   const lerp = falling ? 0.04 : 0.07;
-  // The camera stays mostly centered on the stadium and only drifts a little,
-  // so the whole floor stays in frame.
+  // only drift a bit, keep the whole stadium in frame
   camera3d.position.x += (focusX * 0.28 - camera3d.position.x) * lerp;
   camera3d.position.y += (targetCamY - camera3d.position.y) * lerp;
   camera3d.position.z += (focusZ * 0.28 + targetCamZ - camera3d.position.z) * lerp;
@@ -791,11 +771,9 @@ function updateCamera() {
   camera3d.lookAt(camLook.x, camLook.y, camLook.z);
 }
 
-// ---------------------------------------------------------------
-// Sound. The clash sound (hit.mp3) goes through the Web Audio API: phones silently
-// block <audio> elements that weren't started by a tap, but once an AudioContext
-// has been unlocked by a tap it can play whenever it wants.
-// ---------------------------------------------------------------
+// --- Sound ---
+// hit.mp3 goes through Web Audio: phones mute <audio> that wasn't started by a tap,
+// an AudioContext unlocked once by a tap works from then on
 let audioCtx = null, hitBuffer = null, audioLoading = false;
 const hitAudio = new Audio('hit.mp3');   // used if Web Audio isn't available
 hitAudio.preload = 'auto';
@@ -809,14 +787,14 @@ function loadHitBuffer() {
     .catch(() => {})
     .finally(() => { audioLoading = false; });
 }
-// Has to run inside a tap or click: creates or resumes the audio context.
+// has to run inside a tap or click: creates or resumes the audio context
 function unlockAudio() {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (AC && !audioCtx) audioCtx = new AC();
     if (audioCtx) {
       if (audioCtx.state === 'suspended') audioCtx.resume();
-      // Playing one silent sample during the tap unlocks audio on iOS for good.
+      // playing one silent sample during the tap unlocks audio on iOS for good
       const b = audioCtx.createBuffer(1, 1, 22050);
       const s = audioCtx.createBufferSource();
       s.buffer = b; s.connect(audioCtx.destination); s.start(0);
@@ -845,13 +823,11 @@ function playHitSound(volume, rate) {
   } catch (e) { /* ignore */ }
 }
 
-// ---------------------------------------------------------------
-// Battle engine
-// ---------------------------------------------------------------
+// --- Battle engine ---
 let BATTLE = null;
 let joystickVector = { x: 0, y: 0 };
 let joystickActive = false;
-// Tilt steering.
+// Tilt steering
 let tiltEnabled = false;
 let tiltVector = { x: 0, y: 0 };        // -1..1 on each axis, same as the joystick
 let gravCalib = { roll: 0, pitch: 0 };  // the lean that counts as "neutral", set when calibrating
@@ -866,8 +842,7 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
     bey, x, y, vx, vy,
     spin: MAX_SPIN_LIFE,        // health, from 1 down to 0
     boostTimer: 0, boostMultiplier: 1, boostSource: null,
-    // Each move needs its `charge` time before the first use, then `cooldown`
-    // after every use.
+    // first use after `charge`, then `cooldown` each time
     baseTimer: bey.moves.base.charge,
     specialTimer: bey.moves.special.charge,
     out: false, isPlayer, dashTimer: 0,
@@ -876,11 +851,11 @@ function createFighterState(bey, x, y, vx, vy, isPlayer) {
     special: null,              // the special currently running, if any
     input: { x: 0, y: 0 },      // where it wants to go this frame (stick, tilt or CPU)
     skill: 0.6,                 // CPU skill 0..1 (reactions, aim, timing)
-    // Status effects (seconds left, unless noted)
+    // status effects (seconds left, unless noted)
     ctrlLock: 0, stun: 0, slow: 0, frozen: 0, iceSlide: 0,
     airborne: false, height: 0, anchored: false,
     steerMul: 1, liftTarget: 0, liftVis: 0, inMaelstrom: false,
-    // State for each bey's moves
+    // state for each bey's moves
     guardTimer: 0, guardAge: 0,                         // Draciel shell
     mirror: 0, mirrorStore: 0, mirrorStoreT: 0,         // Zeus mirror
     pounceLeft: 0, pounceWindow: 0,                     // Driger double pounce
@@ -907,7 +882,7 @@ function beginBattleForMatch(match) {
   startBattleLoop();
 }
 
-// opts.sim: used by the balance tests. No graphics, no page, CPU on both sides.
+// opts.sim = balance tests, no graphics, CPU vs CPU
 function initBattleState(beyA, beyB, playerIsA, opts) {
   const sim = !!(opts && opts.sim);
   BATTLE = {
@@ -933,7 +908,7 @@ function initBattleState(beyA, beyB, playerIsA, opts) {
     scene3d.add(meshB);
     if (window.FX) FX.setupBattle(BATTLE);
   }
-  // The left HUD always shows the player, the right one the rival.
+  // left HUD = you, right = rival
   const playerBey = playerIsA ? beyA : beyB;
   const rivalBey = playerIsA ? beyB : beyA;
   $('hud-name-a').textContent = playerBey.name;
@@ -955,6 +930,11 @@ function initBattleState(beyA, beyB, playerIsA, opts) {
 
 let battleRafId = 0;
 let battleGen = 0; // goes up every battle, so an old loop knows it should stop
+// pause while the phone is upright (iOS rotated the screen). Online also when the other one is
+function phoneUpright() { return window.matchMedia('(orientation: portrait) and (pointer: coarse)').matches; }
+function battlePaused() {
+  return phoneUpright() || !!(BATTLE && BATTLE.online === 'host' && window.NET && NET.remotePaused);
+}
 function startBattleLoop() {
   cancelAnimationFrame(battleRafId);
   const myGen = ++battleGen;
@@ -963,10 +943,15 @@ function startBattleLoop() {
     if (myGen !== battleGen || !BATTLE || BATTLE.ended) return;
     const dt = Math.min(0.05, (t - BATTLE.lastT) / 1000);
     BATTLE.lastT = t;
-    if (BATTLE.hitStop > 0) { BATTLE.hitStop -= dt; renderBattle(dt * 0.15); }
-    else {
+    if (battlePaused()) { battleRafId = requestAnimationFrame(step); return; }
+    if (BATTLE.hitStop > 0) {
+      BATTLE.hitStop -= dt;
+      if (BATTLE.online === 'host' && window.NET) NET.afterHostUpdate(0);   // still pass on events
+      renderBattle(dt * 0.15);
+    } else {
       BATTLE.elapsed += dt;
       updateBattle(dt);
+      if (BATTLE.online === 'host' && window.NET && !BATTLE.ended) NET.afterHostUpdate(dt);
       if (!BATTLE.ended) renderBattle(dt);
     }
     if (myGen === battleGen && !BATTLE.ended) battleRafId = requestAnimationFrame(step);
@@ -974,25 +959,28 @@ function startBattleLoop() {
   battleRafId = requestAnimationFrame(step);
 }
 
-// ---------------------------------------------------------------
-// Small helpers shared by moves and AI
-// ---------------------------------------------------------------
-const GAME_VERSION = 'v45'; // shown on the start screen, handy to check an update went live
+// --- Small helpers shared by moves and AI ---
+const GAME_VERSION = 'v46'; // shown on the start screen, handy to check an update went live
 const AI_SKILL = 0.55; // the CPU's skill in normal play (0 = sloppy, 1 = sharp)
 let AI_STYLE_OVERRIDE = null; // for testing: force the same movement style on every CPU
-// Every event gets a sound too: clashes and walls use hit.mp3, the moves use
-// the synthesized sounds in sfx.js.
+// events -> effects + sound (hit.mp3 for clashes/walls, sfx.js for the moves)
 function emit(type, data) {
   if (!BATTLE || BATTLE.sim) return;
   BATTLE.events.push(Object.assign({ type }, data));
+  eventSound(type, data);
+  if (type === 'diveHit') BATTLE.hitStop = 0.09;   // freeze for a split second so the hit feels heavy
+}
+// separate so the online guest can play the same sounds
+function eventSound(type, data) {
   if (type === 'wall') playHitSound(0.3, 1.15);
   else if (type === 'base' && window.SFX) {
     let key = data.kind;
     if (key === 'zeus') key = data.f.mirror > 0 ? 'zeusMirror' : 'zeusRelease';
     SFX.base(key);
   } else if (type !== 'special' && window.SFX) SFX.event(type, data);
-  if (type === 'diveHit') BATTLE.hitStop = 0.09;   // freeze for a split second so the hit feels heavy
 }
+// steered by a person (this phone or the other one online), not the CPU
+function isHuman(f) { return (f.isPlayer || !!f.remote) && !BATTLE.sim; }
 function foeOf(f) { return f === BATTLE.a ? BATTLE.b : BATTLE.a; }
 function distOf(p, q) { return Math.hypot(q.x - p.x, q.y - p.y); }
 function aimDir(f, o, err) {
@@ -1001,7 +989,7 @@ function aimDir(f, o, err) {
 }
 function gauss() { return Math.sqrt(-2 * Math.log(Math.random() + 1e-9)) * Math.cos(2 * Math.PI * Math.random()); }
 function angleDiff(a, b) { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; }
-// Direction from a point to the nearest KO pocket (used when throwing a bey).
+// direction from a point to the nearest KO pocket (used when throwing a bey)
 function pocketDir(p) {
   let best = null, bestD = Infinity;
   for (const pa of POCKET_ANGLES) {
@@ -1015,12 +1003,11 @@ function canAct(f) {
   return BATTLE && !f.out && f.spin > 0 && !f.airborne && !(f.frozen > 0) && !(f.stun > 0) &&
     !BATTLE.spinOutPending && BATTLE.launchGrace <= 0;
 }
-// All damage from moves and collisions goes through here, so Zeus's Dark Dimension
-// can send part of it back.
+// all damage goes through here (Dark Dimension reflects part of it)
 function dealDamage(from, to, amount, kind) {
   if (!(amount > 0) || BATTLE.spinOutPending || to.out) return 0;
   if (to.special && to.special.kind === 'dimension' && to.special.t > 0.2 && from && from !== to) {
-    // Dark Dimension: half goes back to the attacker, Zeus takes the other half.
+    // Dark Dimension: half goes back to the attacker, Zeus takes the other half
     const back = amount * 0.5;
     from.spin = Math.max(0, from.spin - back);
     emit('reflect', { x: to.x, y: to.y, amount: back });
@@ -1046,10 +1033,7 @@ function dash(f, dir, speed, power, dur) {
   f.boostSource = 'base';
 }
 
-// ---------------------------------------------------------------
-// CPU opponent: where it steers (personality, dodging) and when it uses its moves.
-// Both depend on its skill level.
-// ---------------------------------------------------------------
+// --- CPU: steering + when to use moves, based on skill ---
 function aiIntent(f, o, dt) {
   const sk = f.skill;
   const dx = o.x - f.x, dy = o.y - f.y;
@@ -1077,8 +1061,7 @@ function aiIntent(f, o, dt) {
       default: ix = dx / d * 0.95; iy = dy / d * 0.95;
     }
   }
-  // If the rival is charging straight at us, step aside and hit it from the side
-  // instead. Better CPUs do this more often.
+  // rival charging straight in -> sidestep and hit from the side (better CPUs do it more)
   {
     const rApp = (o.vx * (f.x - o.x) + o.vy * (f.y - o.y)) / d;     // rival speed toward us
     const mine = (f.vx * dx + f.vy * dy) / d;                     // our speed toward it
@@ -1099,12 +1082,12 @@ function aiIntent(f, o, dt) {
     const tx = -dy / d * f.dodgeSide, ty = dx / d * f.dodgeSide;
     ix = ix * 0.15 + tx * 1.6; iy = iy * 0.15 + ty * 1.6;
   }
-  // Don't ram a raised shell or an active mirror; circle around and wait.
+  // don't ram a raised shell or an active mirror; circle around and wait
   if ((o.guardTimer > 0 || o.mirror > 0) && d < 140 && Math.random() < sk) {
     const tx = -dy / d, ty = dx / d;              // circle around instead of ramming
     ix = ix * 0.2 + tx * 0.7 - dx / d * 0.3; iy = iy * 0.2 + ty * 0.7 - dy / d * 0.3;
   }
-  // Dodge the rival's specials, after a reaction time that depends on skill.
+  // dodge the rival's specials, after a reaction time that depends on skill
   const rs = o.special;
   const react = 0.12 + (1 - sk) * 0.45;
   const away = (px, py, w) => {
@@ -1125,7 +1108,7 @@ function aiIntent(f, o, dt) {
     }
     if (rs.kind === 'blizzard' && d < 120) away(o.x, o.y, 0.8 * sk);
   }
-  // Stay away from the wall.
+  // stay away from the wall
   const rimStart = ARENA.r * 0.68;
   if (dc > rimStart) {
     const over = (dc - rimStart) / (ARENA.r - rimStart);
@@ -1147,12 +1130,12 @@ function aiMoves(f, o, dt) {
   f.aiCd = 0.07 + (1 - sk) * 0.2;            // better CPUs think more often
   const d = distOf(f, o);
   const id = f.bey.id;
-  // Aim with some error, and the better the CPU, the more it aims ahead of the rival.
+  // aim with some error, and the better the CPU, the more it aims ahead of the rival
   const tLead = d / 260;
   const px = o.x + o.vx * tLead * sk, py = o.y + o.vy * tLead * sk;
   const leadOff = angleDiff(Math.atan2(py - f.y, px - f.x), Math.atan2(o.y - f.y, o.x - f.x));
   const err = leadOff + gauss() * (0.03 + (1 - sk) * 0.32);
-  // Time until contact if the rival keeps coming (to time the shell or the mirror).
+  // time until contact if the rival keeps coming (to time the shell or the mirror)
   const nx = (f.x - o.x) / (d || 1), ny = (f.y - o.y) / (d || 1);
   const approach = (o.vx - f.vx) * nx + (o.vy - f.vy) * ny;  // positive means it's getting closer
   const tti = approach > 30 ? (d - BEY_R * 2) / approach : Infinity;
@@ -1172,7 +1155,7 @@ function aiMoves(f, o, dt) {
   const walled = (o.guardTimer > 0 || o.mirror > 0 || inDim) && Math.random() < 0.3 + 0.7 * sk;
   switch (id) {
     case 'draciel': {
-      // A good CPU raises the shell right before the hit (parry), a weaker one too early.
+      // A good CPU raises the shell right before the hit (parry), a weaker one too early
       const lead = 0.18 + (1 - sk) * 0.45;
       if (tti < lead && Math.random() < 0.45 + 0.5 * sk) triggerBaseMove(f, o, 0);
       break;
@@ -1189,13 +1172,13 @@ function aiMoves(f, o, dt) {
   }
 }
 
-// Turns the steering input into acceleration, taking status effects into account.
+// steering -> acceleration (with status effects)
 function applySteer(f, v, dt) {
   if (f.out || f.spin <= 0) return;
   if (f.airborne) {
-    // While Dranzer is aiming its dive, the stick moves the target instead of the bey.
+    // Phoenix Dive aim: the stick moves the target, not the bey
     const s = f.special;
-    if (s && s.kind === 'dive' && s.phase === 'aim' && (f.isPlayer && !BATTLE.sim)) {
+    if (s && s.kind === 'dive' && s.phase === 'aim' && isHuman(f)) {
       s.tx += v.x * 330 * dt; s.ty += v.y * 330 * dt;
     }
     return;
@@ -1220,16 +1203,18 @@ function updateBattle(dt) {
 
   if (!inGrace) {
     if (!BATTLE.sim && tiltEnabled) updateTiltVector();
-    const pv = BATTLE.sim ? aiIntent(player, ai, dt) : (tiltEnabled ? tiltVector : joystickVector);
+    let pv = BATTLE.sim ? aiIntent(player, ai, dt) : (tiltEnabled ? tiltVector : joystickVector);
+    if (BATTLE.online === 'host' && window.NET) pv = NET.delayedInput(pv);   // same delay as the other phone
     player.input = { x: pv.x, y: pv.y };
-    ai.input = aiIntent(ai, player, dt);
+    // online: rival = other phone, otherwise CPU
+    ai.input = ai.remote ? { x: ai.remote.x, y: ai.remote.y } : aiIntent(ai, player, dt);
     applySteer(player, player.input, dt);
     applySteer(ai, ai.input, dt);
   }
 
   [a, b].forEach((f) => {
     if (f.out) return;
-    // Status timers
+    // status timers
     if (f.ctrlLock > 0) f.ctrlLock = Math.max(0, f.ctrlLock - dt);
     if (f.stun > 0) f.stun = Math.max(0, f.stun - dt);
     if (f.slow > 0) f.slow = Math.max(0, f.slow - dt);
@@ -1257,8 +1242,7 @@ function updateBattle(dt) {
       }
     }
     if (!inGrace) {
-      // Spin slowly drops on its own: gently above STABLE_SPIN, faster below it.
-      // Stamina slows it down a bit.
+      // natural spin loss, faster below STABLE_SPIN, stamina helps a bit
       const m = staMult(f.bey.stats.stamina);
       const rate = f.spin > STABLE_SPIN ? SPIN_DECAY * 0.5 * m : SPIN_DECAY * 2.4 * m;
       f.spin = Math.max(0, f.spin - rate * dt);
@@ -1268,14 +1252,14 @@ function updateBattle(dt) {
     }
     if (f.airborne) { f.vx = 0; f.vy = 0; return; }   // in the air
 
-    // Dranzer's Flame Arc curves toward the point it was aimed at.
+    // Dranzer's Flame Arc curves toward the point it was aimed at
     if (f.arc) {
       f.arc.t -= dt;
       const ax = f.arc.tx - f.x, ay = f.arc.ty - f.y, ad = Math.hypot(ax, ay) || 1;
       f.vx += ax / ad * 1100 * dt; f.vy += ay / ad * 1100 * dt;
       if (f.arc.t <= 0) f.arc = null;
     }
-    // Driger's claw lunge follows the rival for a moment.
+    // Driger's claw lunge follows the rival for a moment
     if (f.lungeT > 0) {
       f.lungeT -= dt;
       const o = foeOf(f);
@@ -1343,19 +1327,19 @@ function updateBattle(dt) {
   updateTrails(dt);
   updateWaves(dt);
 
-  // Specials: clear last frame's effects, then update both beys.
+  // specials: clear last frame's effects, then update both beys
   [a, b].forEach((f) => { f.steerMul = 1; f.liftTarget = 0; f.inMaelstrom = false; });
   if (!BATTLE.spinOutPending) { stepSpecial(a, dt); stepSpecial(b, dt); }
 
   if (!inGrace && !BATTLE.spinOutPending) {
     if (BATTLE.sim) aiMoves(player, ai, dt);
-    aiMoves(ai, player, dt);
+    if (!ai.remote) aiMoves(ai, player, dt);
   }
 
   if (!BATTLE.sim) updateBattleHud(player);
   if (BATTLE.sim) BATTLE.events.length = 0;
 
-  // Ring-out: wait a moment so you can see it fall out, then end the game.
+  // ring-out: wait a moment so you can see it fall out, then end the game
   if (BATTLE.ringOutPending) {
     if (BATTLE.ringOutPending.ringOutTimer > 0.5) {
       const loser = BATTLE.ringOutPending;
@@ -1363,7 +1347,7 @@ function updateBattle(dt) {
     }
     return;
   }
-  // Spin-out: the winner is decided the moment a bey reaches 0.
+  // spin-out: the winner is decided the moment a bey reaches 0
   if (!BATTLE.spinOutPending) {
     let loser = null;
     if (a.spin <= 0 && b.spin <= 0) loser = (a.spin <= b.spin) ? a : b;
@@ -1389,7 +1373,7 @@ function updateBattle(dt) {
   }
 }
 
-// HUD: spin bars and button cooldowns.
+// HUD: spin bars and button cooldowns
 function updateBattleHud(player) {
   const { a, b } = BATTLE;
   const rival = player === a ? b : a;
@@ -1423,13 +1407,13 @@ function resolveCollision(a, b, dx, dy, dist, noDamage) {
   a.x -= nx * overlap * shareA; a.y -= ny * overlap * shareA;
   b.x += nx * overlap * shareB; b.y += ny * overlap * shareB;
 
-  // Who drove into whom. This has to be measured before the bounce changes the speeds.
+  // who drove into whom. This has to be measured before the bounce changes the speeds
   const aIn = Math.max(0, a.vx * nx + a.vy * ny);
   const bIn = Math.max(0, -(b.vx * nx + b.vy * ny));
   const relVx = a.vx - b.vx, relVy = a.vy - b.vy;
   const closing = Math.max(0, relVx * nx + relVy * ny);   // how fast they hit each other
 
-  // Knockback: attack pushes, defense resists.
+  // knockback: attack pushes, defense resists
   const baseImpulse = Math.max(MIN_KNOCKBACK, closing * KNOCKBACK_SCALE);
   const boostA = a.boostTimer > 0 ? a.boostMultiplier : 1;
   const boostB = b.boostTimer > 0 ? b.boostMultiplier : 1;
@@ -1439,7 +1423,7 @@ function resolveCollision(a, b, dx, dy, dist, noDamage) {
   if (heavyB) impulseB *= 0.05;
   a.vx -= nx * impulseA; a.vy -= ny * impulseA;
   b.vx += nx * impulseB; b.vy += ny * impulseB;
-  // Always push them apart a little, so clashes look like bounces instead of grinding.
+  // always push them apart a little, so clashes look like bounces instead of grinding
   const MIN_SEPARATION_SPEED = 55;
   const sepA = a.vx * -nx + a.vy * -ny;
   const sepB = b.vx * nx + b.vy * ny;
@@ -1450,7 +1434,7 @@ function resolveCollision(a, b, dx, dy, dist, noDamage) {
   BATTLE.impactCooldown = IMPACT_COOLDOWN;
   if (noDamage) { if (!BATTLE.sim) playHitSound(0.5); return; }
 
-  // Damage: impact speed decides how much, and the bey that drove in deals most of it.
+  // damage: impact speed decides how much, and the bey that drove in deals most of it
   const raw = impactLoss(closing);
   const sum = aIn + bIn;
   const aShare = sum > 1 ? aIn / sum : 0.5;
@@ -1469,11 +1453,11 @@ function resolveCollision(a, b, dx, dy, dist, noDamage) {
   if (a.boostTimer > 0 && a.boostSource === 'release' && a.mirrorStore > 0) { lossToB += a.mirrorStore; a.mirrorStore = 0; emit('release', { x: b.x, y: b.y }); }
   if (b.boostTimer > 0 && b.boostSource === 'release' && b.mirrorStore > 0) { lossToA += b.mirrorStore; b.mirrorStore = 0; emit('release', { x: a.x, y: a.y }); }
 
-  // Effects of specials that work on contact.
+  // effects of specials that work on contact
   lossToB += contactSpecial(a, b);
   lossToA += contactSpecial(b, a);
 
-  // Defenses: Draciel's shell (block or parry) and Zeus's mirror.
+  // defenses: Draciel's shell (block or parry) and Zeus's mirror
   const n = { x: nx, y: ny };
   lossToA = defendHit(a, b, lossToA, n, bIn);
   lossToB = defendHit(b, a, lossToB, { x: -nx, y: -ny }, aIn);
@@ -1500,7 +1484,7 @@ function resolveCollision(a, b, dx, dy, dist, noDamage) {
   }
 }
 
-// What happens when `f` touches `o` while one of f's specials is active.
+// contact effects while f has a special running
 function contactSpecial(f, o) {
   const s = f.special;
   if (!s) return 0;
@@ -1523,13 +1507,13 @@ function contactSpecial(f, o) {
   return 0;
 }
 
-// Draciel's shell and Zeus's mirror. `n` points from the defender to the attacker.
+// shell (Draciel) and mirror (Zeus). n = defender -> attacker
 function defendHit(def, att, loss, n, attackerDrive) {
   if (loss <= 0) return loss;
   if (def.guardTimer > 0) {
     const meaningful = attackerDrive > 45 || att.boostTimer > 0;
     if (def.guardAge <= PARRY_WINDOW && meaningful) {
-      // Parry: the hit goes back to the attacker.
+      // parry: the hit goes back to the attacker
       dealDamage(def, att, loss + 0.02, 'parry');
       att.vx += n.x * 260; att.vy += n.y * 260;
       att.ctrlLock = 0.25;
@@ -1542,7 +1526,7 @@ function defendHit(def, att, loss, n, attackerDrive) {
     return loss * 0.3;
   }
   if (def.mirror > 0) {
-    // Mirror Guard: absorbs 60% of the hit and keeps some of it for the release dash.
+    // Mirror Guard: absorbs 60% of the hit and keeps some of it for the release dash
     if (BATTLE.dmgLog) logDmg(def, 'ABSORBED', loss * 0.6);
     def.mirrorStore = Math.min(0.06, loss * 0.6);
     def.mirrorStoreT = 4;
@@ -1554,7 +1538,7 @@ function defendHit(def, att, loss, n, attackerDrive) {
   return loss;
 }
 
-// Dragoon's Gale Trail: whoever crosses it gets blown sideways.
+// Dragoon's Gale Trail: whoever crosses it gets blown sideways
 function updateTrails(dt) {
   if (!BATTLE.trails.length) return;
   for (const tr of BATTLE.trails) {
@@ -1579,7 +1563,7 @@ function updateTrails(dt) {
   BATTLE.trails = BATTLE.trails.filter((t) => t.age < t.life);
 }
 
-// Wolborg's Frost Howl: a cone of frost that spreads out.
+// Wolborg's Frost Howl: a cone of frost that spreads out
 function updateWaves(dt) {
   if (!BATTLE.waves.length) return;
   for (const w of BATTLE.waves) {
@@ -1602,14 +1586,12 @@ function updateWaves(dt) {
   BATTLE.waves = BATTLE.waves.filter((w) => w.t < w.dur + 0.3);
 }
 
-// ---------------------------------------------------------------
-// Base moves. One per bey, aimed when you press the button, and they can miss.
-// ---------------------------------------------------------------
+// --- Base moves (aimed when you press, can miss) ---
 function triggerBaseMove(f, o, aimErr) {
   if (!canAct(f)) return false;
   const base = f.bey.moves.base;
   const id = f.bey.id;
-  // Driger: the second pounce, re-aimed, if pressed in time.
+  // Driger: the second pounce, re-aimed, if pressed in time
   if (id === 'driger' && f.pounceLeft > 0) {
     const d = aimDir(f, o, aimErr);
     dash(f, d, 235, base.power, 0.45);
@@ -1669,10 +1651,8 @@ function triggerBaseMove(f, o, aimErr) {
   return true;
 }
 
-// ---------------------------------------------------------------
-// Special moves. Each one shows a warning and can be avoided. Landed in full, one is
-// worth about 0.15 spin.
-// ---------------------------------------------------------------
+// --- Special moves ---
+// every special has a warning and can be dodged. Full hit ~0.15 spin
 const SPECIAL_KIND = { dragoon: 'tornado', dranzer: 'dive', blackdranzer: 'eclipse', driger: 'claw',
                        draciel: 'maelstrom', wolborg: 'blizzard', zeus: 'dimension' };
 function triggerSpecialMove(f, o) {
@@ -1708,11 +1688,13 @@ function endSpecial(f) {
   f.special = null;
 }
 
-// Driger's button presses during Thunder Claw, timed to the rhythm.
-function clawPress(f) {
+// Thunder Claw presses. pressedAt = special clock when the button was hit
+// (online the press arrives late, so judge it on when it was pressed)
+function clawPress(f, pressedAt) {
   const s = f.special;
   if (!s || s.kind !== 'claw' || s.count >= 3) return;
-  const off = Math.abs(s.t - s.next);
+  const at = pressedAt == null ? s.t : Math.max(s.t - 0.25, Math.min(s.t, pressedAt));
+  const off = Math.abs(at - s.next);
   const q = off <= 0.11 ? 'perfect' : off <= 0.22 ? 'good' : 'miss';
   if (q !== 'miss') {
     const o = s.foe;
@@ -1742,7 +1724,7 @@ function stepSpecial(f, dt) {
   const d = Math.hypot(dx, dy) || 1;
   switch (s.kind) {
     case 'tornado': {
-      // The tornado follows Dragoon with some delay, so you can drag it onto the rival.
+      // the tornado follows Dragoon with some delay, so you can drag it onto the rival
       const follow = Math.min(1, 1.6 * dt);
       s.x += (f.x - s.x) * follow; s.y += (f.y - s.y) * follow;
       const rx = o.x - s.x, ry = o.y - s.y, rd = Math.hypot(rx, ry) || 1;
@@ -1760,9 +1742,9 @@ function stepSpecial(f, dt) {
         if (rd < s.R * 1.15 && !o.airborne) {
           let fv;
           const inp = f.input;
-          if (f.isPlayer && !BATTLE.sim && inp && Math.hypot(inp.x, inp.y) > 0.3) {
+          if (isHuman(f) && inp && Math.hypot(inp.x, inp.y) > 0.3) {
             const m = Math.hypot(inp.x, inp.y); fv = { x: inp.x / m, y: inp.y / m };
-          } else if (f.isPlayer && !BATTLE.sim) {
+          } else if (isHuman(f)) {
             fv = { x: rx / rd, y: ry / rd };
           } else {
             fv = pocketDir(o);
@@ -1781,8 +1763,8 @@ function stepSpecial(f, dt) {
     case 'dive': {
       const RISE = 0.45, AIM = 0.75, LOCK = 0.35, DIVE = 0.3, H = 85;
       const lim = ARENA.r - BEY_R - 6;
-      if (!(f.isPlayer && !BATTLE.sim) && (s.phase === 'rise' || s.phase === 'aim')) {
-        // The CPU aims the target at the rival, a little ahead; weaker CPUs lag behind.
+      if (!isHuman(f) && (s.phase === 'rise' || s.phase === 'aim')) {
+        // the CPU aims the target at the rival, a little ahead; weaker CPUs lag behind
         const sk = f.skill, lag = 2 + 6 * sk;
         const tx = o.x + o.vx * 0.5 * sk + gauss() * (1 - sk) * 6;
         const ty = o.y + o.vy * 0.5 * sk + gauss() * (1 - sk) * 6;
@@ -1841,7 +1823,7 @@ function stepSpecial(f, dt) {
     }
     case 'claw': {
       if (!(f.lungeT > 0)) { f.vx += dx / d * 150 * dt; f.vy += dy / d * 150 * dt; }
-      if (!(f.isPlayer && !BATTLE.sim) && s.count < 3) {
+      if (!isHuman(f) && s.count < 3) {
         if (s.aiPressAt == null) s.aiPressAt = s.next + gauss() * (0.03 + 0.16 * (1 - f.skill));
         const dimUp = o.special && o.special.kind === 'dimension';
         if (s.t >= s.aiPressAt && !(dimUp && Math.random() < f.skill)) clawPress(f);
@@ -1897,9 +1879,7 @@ function stepSpecial(f, dt) {
   }
 }
 
-// ---------------------------------------------------------------
-// Drawing: models, glow and the move effects from fx.js.
-// ---------------------------------------------------------------
+// --- Drawing: models, glow and the move effects from fx.js ---
 function renderBattle(dt) {
   updateMeshFromFighter(meshA, BATTLE.a);
   updateMeshFromFighter(meshB, BATTLE.b);
@@ -1926,12 +1906,13 @@ function endBattle(winnerF, loserF, reason) {
   if (window.SFX) SFX.stopAll();
   battleGen++;                       // tells the running loop to stop
   cancelAnimationFrame(battleRafId);
+  if (BATTLE.online && window.NET) { NET.onBattleEnd(winnerF, loserF, reason); return; }
   const winnerBey = winnerF.bey, loserBey = loserF.bey;
   const reasonText = reason === 'ringout'
-    ? `${winnerBey.name} knocks ${loserBey.name} out of the stadium!`
+    ? `Ring out! ${winnerBey.name} knocks ${loserBey.name} out.`
     : reason === 'spinout'
       ? `${winnerBey.name} outspins ${loserBey.name}.`
-      : `Time's up: ${winnerBey.name} wins with more spin left.`;
+      : `Time's up! ${winnerBey.name} had more spin left.`;
   handleGameEnd(winnerBey, reasonText);
 }
 
@@ -1944,8 +1925,8 @@ function handleGameEnd(winnerBey, reasonText) {
 
   if (!setOver) {
     showResultScreen(
-      playerWonGame ? 'Game won!' : 'Game lost',
-      `${reasonText} Matchup score: ${scoreText}.`,
+      playerWonGame ? 'Round won!' : 'Round lost',
+      `${reasonText} Score: ${scoreText}`,
       () => beginBattleForMatch(match)
     );
     return;
@@ -1955,12 +1936,10 @@ function handleGameEnd(winnerBey, reasonText) {
     const opponentName = match.a.id === GAME.playerBeyId ? match.b.name : match.a.name;
     GAME.playerPath.push({ opponent: opponentName, score: scoreText });
   }
-  finalizeMatch(winnerBey, playerWonGame, `${reasonText} Wins the matchup ${scoreText}.`);
+  finalizeMatch(winnerBey, playerWonGame, `${reasonText} Final score: ${scoreText}`);
 }
 
-// ---------------------------------------------------------------
-// Input: on-screen joystick (computer and phone).
-// ---------------------------------------------------------------
+// --- Input: on-screen joystick (computer and phone) ---
 function requestFullscreen() {
   const el = document.documentElement;
   const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
@@ -1968,9 +1947,8 @@ function requestFullscreen() {
   setTimeout(resizeRendererToCanvas, 300); // resize again once fullscreen kicks in
 }
 
-// ---- Tilt steering from the gravity reading (devicemotion) ----
-// The raw accelerometer is noisy (shaky hands, vibration), so steering straight from it
-// feels jittery. Smoothing the gravity reading a little fixes that.
+// --- Tilt steering (devicemotion) ---
+// raw gravity is jittery, a bit of smoothing fixes it
 let gravFilt = { x: 0, y: 0, z: 0 };   // smoothed gravity
 let gravFiltInit = false;
 const GRAV_ALPHA = 0.6;                // light smoothing: removes the jitter without adding lag
@@ -1981,10 +1959,10 @@ function screenAngleDeg() {
 function onDeviceMotion(e) {
   const g = e.accelerationIncludingGravity;
   if (!g || g.x == null) return;
-  // iOS reports gravity with the opposite sign to Android.
+  // iOS reports gravity with the opposite sign to Android
   const s = IS_IOS ? -1 : 1;
   const rx = g.x * s, ry = g.y * s, rz = (g.z || 0) * s;
-  // Blend the new reading into the previous one, which smooths out the jitter.
+  // blend the new reading into the previous one, which smooths out the jitter
   if (!gravFiltInit) { gravFilt.x = rx; gravFilt.y = ry; gravFilt.z = rz; gravFiltInit = true; }
   else {
     gravFilt.x = GRAV_ALPHA * gravFilt.x + (1 - GRAV_ALPHA) * rx;
@@ -1994,7 +1972,7 @@ function onDeviceMotion(e) {
   gravRaw.x = gravFilt.x; gravRaw.y = gravFilt.y; gravRaw.z = gravFilt.z;
   tiltHasReading = true;
 }
-// Works out the steering from the smoothed gravity. Runs every frame.
+// works out the steering from the smoothed gravity. Runs every frame
 function updateTiltVector() {
   if (!tiltEnabled || !tiltHasReading) return;
   const gx = gravRaw.x, gy = gravRaw.y, gz = gravRaw.z;
@@ -2013,7 +1991,7 @@ function updateTiltVector() {
   let ny = clamp(leanY / FULL, -1, 1);
   nx = Math.abs(nx) < TILT_DEAD ? 0 : nx;
   ny = Math.abs(ny) < TILT_DEAD ? 0 : ny;
-  // No extra smoothing here: the gravity is already smoothed and more would only add lag.
+  // no extra smoothing here: the gravity is already smoothed and more would only add lag
   const TILT_Y_SIGN = 1;
   tiltVector.x = nx;
   tiltVector.y = TILT_Y_SIGN * ny;
@@ -2023,7 +2001,7 @@ function startTiltListening() {
   tiltListening = true;
   window.addEventListener('devicemotion', onDeviceMotion, true);
 }
-// Asks for permission to use the motion sensors (iOS needs a tap for this), then starts listening.
+// iOS needs a tap to allow the motion sensors
 function requestTiltPermission() {
   let asked = false;
   if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -2035,14 +2013,13 @@ function requestTiltPermission() {
   }
 }
 function calibrateTilt() {
-  // Whatever the current lean is becomes the neutral position.
+  // whatever the current lean is becomes the neutral position
   const gx = gravRaw.x, gy = gravRaw.y, gz = gravRaw.z;
   gravCalib.roll = Math.atan2(gx, Math.sqrt(gy * gy + gz * gz));
   gravCalib.pitch = Math.atan2(gy, Math.sqrt(gx * gx + gz * gz));
   tiltVector.x = 0; tiltVector.y = 0;
 }
-// Used by the calibrate button. Makes sure the sensors are on, then takes the current
-// position as neutral. If there's no reading yet, it keeps trying for a moment.
+// calibrate button: current position = neutral (retries for a bit if no reading yet)
 function doCalibrate(onDone) {
   requestTiltPermission();
   startTiltListening();
@@ -2091,8 +2068,7 @@ function setupJoystick() {
     joystickVector.x = clamp(dx / c.radius, -1, 1);
     joystickVector.y = clamp(dy / c.radius, -1, 1);
   }
-  // Only the finger that touched the joystick first controls it, so pressing the move
-  // buttons with the other hand doesn't mess it up.
+  // only the first finger controls the stick, so the move buttons don't steal it
   el.addEventListener('pointerdown', (e) => {
     if (activePointerId !== null) return; // another finger already has it
     activePointerId = e.pointerId;
@@ -2115,30 +2091,33 @@ function setupJoystick() {
   el.addEventListener('pointercancel', release);
 }
 
-// ---------------------------------------------------------------
-// Init
-// ---------------------------------------------------------------
+// --- Init ---
 document.addEventListener('DOMContentLoaded', () => {
   initThree();
-  // Ask for the motion sensors on the first tap anywhere (iOS needs a tap), so they're
-  // already working by the time the player calibrates.
+  // ask for motion sensors on the first tap (iOS)
   document.addEventListener('pointerdown', () => { requestTiltPermission(); }, { once: true });
-  // Every tap also wakes the audio up again (phones pause it in the background).
+  // every tap also wakes the audio up again (phones pause it in the background)
   document.addEventListener('pointerdown', () => { unlockAudio(); }, { passive: true });
-  // Try to lock the phone in landscape. Most browsers only allow it in fullscreen,
-  // so there's also a "rotate your phone" screen in the CSS.
+  // landscape lock, only works in fullscreen on some browsers (never on iPhone)
   if (screen.orientation && screen.orientation.lock) {
     screen.orientation.lock('landscape').catch(() => {});
   }
-  // When the phone rotates, resize the 3D view and recalibrate the tilt.
+  // on rotate: resize. Don't recalibrate mid-battle, the phone is still tilted
+  // (calibration already works for both landscape sides)
   window.addEventListener('orientationchange', () => {
-    setTimeout(() => { resizeRendererToCanvas(); if (tiltEnabled && tiltHasReading) calibrateTilt(); }, 300);
+    setTimeout(() => {
+      resizeRendererToCanvas();
+      const inBattle = BATTLE && !BATTLE.ended && $('screen-battle').classList.contains('active');
+      if (!inBattle && tiltEnabled && tiltHasReading && !phoneUpright()) calibrateTilt();
+    }, 300);
   });
   $('btn-mode-tournament').addEventListener('click', () => { unlockAudio(); requestFullscreen(); requestTiltPermission(); enterMode('tournament'); });
   $('btn-mode-single').addEventListener('click', () => { unlockAudio(); requestFullscreen(); requestTiltPermission(); enterMode('single'); });
+  $('btn-mode-online').addEventListener('click', () => { unlockAudio(); requestFullscreen(); requestTiltPermission(); if (window.NET) NET.openLobby(); });
   $('btn-select-back').addEventListener('click', () => {
+    if (GAME.mode === 'online') { if (window.NET) NET.leave(); return; }
     if (GAME.mode === 'single' && GAME.selectionPhase === 'opponent') {
-      // Back to choosing the player's bey.
+      // back to choosing the player's bey
       GAME.selectionPhase = 'player';
       updateSelectScreenForPhase();
       renderCarousel();
@@ -2166,23 +2145,31 @@ document.addEventListener('DOMContentLoaded', () => {
     ev.preventDefault();
     if (!BATTLE || BATTLE.ended) return;
     if ($('btn-base').disabled) return;
+    if (BATTLE.online === 'guest') { NET.sendButton('base'); return; }
     const player = BATTLE.a.isPlayer ? BATTLE.a : BATTLE.b;
     const ai = player === BATTLE.a ? BATTLE.b : BATTLE.a;
-    triggerBaseMove(player, ai, 0);
+    const act = () => { if (BATTLE && !BATTLE.ended) triggerBaseMove(player, ai, 0); };
+    if (BATTLE.online === 'host') NET.delayedAction(act); else act();
   }
   function fireSpecial(ev) {
     ev.preventDefault();
     if (!BATTLE || BATTLE.ended) return;
     if ($('btn-special').disabled) return;
+    if (BATTLE.online === 'guest') { NET.sendButton('special'); return; }
     const player = BATTLE.a.isPlayer ? BATTLE.a : BATTLE.b;
     const ai = player === BATTLE.a ? BATTLE.b : BATTLE.a;
-    if (player.special && player.special.kind === 'claw') clawPress(player);
-    else triggerSpecialMove(player, ai);
+    const pressedAt = player.special ? player.special.t : null;
+    const act = () => {
+      if (!BATTLE || BATTLE.ended) return;
+      if (player.special && player.special.kind === 'claw') clawPress(player, pressedAt);
+      else triggerSpecialMove(player, ai);
+    };
+    if (BATTLE.online === 'host') NET.delayedAction(act); else act();
   }
   $('btn-base').addEventListener('pointerdown', fireBase);
   $('btn-special').addEventListener('pointerdown', fireSpecial);
   $('btn-restart').addEventListener('click', () => {
-    // Reset without reloading the page (a reload would exit fullscreen) and go back to the menu.
+    // no reload, it would exit fullscreen
     if (BATTLE) { BATTLE.ended = true; battleGen++; cancelAnimationFrame(battleRafId); }
     BATTLE = null;
     GAME.pendingMatch = null;
@@ -2192,6 +2179,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showScreen('mode');
   });
   $('btn-back-select').addEventListener('click', () => {
+    if (GAME.mode === 'online' && window.NET) { NET.leave(); return; }
     if (window.SFX) SFX.stopAll();
     if (BATTLE) { BATTLE.ended = true; battleGen++; cancelAnimationFrame(battleRafId); }
     BATTLE = null;
@@ -2201,11 +2189,11 @@ document.addEventListener('DOMContentLoaded', () => {
   function runCalibrate(btn, statusEl) {
     const prev = btn ? btn.textContent : '';
     if (btn) btn.textContent = 'Calibrating…';
-    if (statusEl) statusEl.textContent = 'Reading motion sensors…';
+    if (statusEl) statusEl.textContent = 'Hold still…';
     requestFullscreen();
     doCalibrate((ok) => {
       if (btn) btn.textContent = ok ? 'Calibrated ✓' : prev;
-      if (statusEl) statusEl.textContent = ok ? 'Tilt ready — steer by tilting your phone.' : 'No motion sensors — the on-screen stick will be used.';
+      if (statusEl) statusEl.textContent = ok ? 'Tilt ready' : 'No motion sensors, using the on-screen stick';
       if (!ok) tiltUnavailableFallback();
     });
   }
@@ -2214,12 +2202,12 @@ document.addEventListener('DOMContentLoaded', () => {
     requestFullscreen();
     const isTouch = window.matchMedia('(pointer: coarse)').matches;
     if (!isTouch) { showScreen('mode'); return; }
-    // On a phone: take the current position as neutral, once the sensors have a reading.
+    // on a phone: take the current position as neutral, once the sensors have a reading
     const btn = $('btn-start');
     const st = $('start-tilt-status');
     btn.disabled = true;
     btn.textContent = 'Calibrating…';
-    if (st) st.textContent = 'Hold the phone still… reading sensors.';
+    if (st) st.textContent = 'Hold still…';
     requestTiltPermission();
     startTiltListening();
     let waited = 0;
@@ -2228,23 +2216,22 @@ document.addEventListener('DOMContentLoaded', () => {
         tiltEnabled = true;
         calibrateTilt();           // neutral = however you're holding it now
         btn.disabled = false;
-        btn.textContent = 'Start';
-        if (st) st.textContent = 'Calibrated ✓ — tilt to steer.';
+        btn.textContent = 'Play';
+        if (st) st.textContent = 'Ready! Tilt to steer';
         showScreen('mode');
         return;
       }
       waited += 60;
       if (waited < 2500) { setTimeout(waitForReading, 60); return; } // wait up to 2.5s
-      // No sensors: use the on-screen joystick instead.
+      // no sensors: use the on-screen joystick instead
       btn.disabled = false;
-      btn.textContent = 'Start';
-      if (st) st.textContent = 'No motion sensors — the on-screen stick will be used.';
+      btn.textContent = 'Play';
+      if (st) st.textContent = 'No motion sensors, using the on-screen stick';
       tiltUnavailableFallback();
       showScreen('mode');
     })();
   });
-  // On the start screen, show whether the sensors work and which way the bey would move.
-  // Tilt is switched on and calibrated just for this preview.
+  // start screen preview: shows if motion works and which way you'd move
   const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
   if (!isTouchDevice) $('start-tilt-status').textContent = GAME_VERSION;   // on a computer, show the version instead
   if (isTouchDevice) {
@@ -2253,19 +2240,19 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
       const st = $('start-tilt-status');
       if (!st || !$('screen-start').classList.contains('active')) return;
-      if (!tiltHasReading) { st.textContent = 'Tip: tap Start to enable motion controls.'; return; }
-      // Switch tilt on and calibrate once, so the arrow follows the real tilt.
+      if (!tiltHasReading) { st.textContent = 'Tap Play to turn on tilt controls'; return; }
+      // switch tilt on and calibrate once, so the arrow follows the real tilt
       if (!previewCalibrated) { tiltEnabled = true; calibrateTilt(); previewCalibrated = true; }
       updateTiltVector();
       const ax = tiltVector.x, ay = tiltVector.y;
       let arrow = '•';
       if (Math.hypot(ax, ay) > 0.18) {
         const dirs = ['→','↗','↑','↖','←','↙','↓','↘'];
-        // Up on screen is -y in the game, so flip y for the arrow.
+        // up on screen is -y in the game, so flip y for the arrow
         const idx = Math.round((Math.atan2(-ay, ax) + Math.PI * 2) / (Math.PI / 4)) % 8;
         arrow = dirs[idx];
       }
-      st.textContent = GAME_VERSION + ' · Motion ✓  ' + arrow + '   (tap Start)';
+      st.textContent = GAME_VERSION + ' · Tilt ✓ ' + arrow;
     }, 200);
   }
   $('btn-recalibrate').addEventListener('click', () => runCalibrate($('btn-recalibrate'), null));

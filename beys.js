@@ -1,9 +1,6 @@
-// beys.js: the roster.
-// Stats go from 1 to 10. They change how a bey moves (speed, weight, endurance), while
-// damage depends on how well you land your hits (see game.js). "type" sets how the CPU
-// drives each bey (attack, defense, stamina or balance), following the show.
-// What each move actually does is in game.js (triggerBaseMove / stepSpecial).
-// The move names are my own, loosely inspired by the show.
+// beys.js - roster
+// stats 1-10, they change how a bey moves (damage is about how you hit, see game.js)
+// type = how the CPU plays it. Move logic is in game.js (triggerBaseMove / stepSpecial)
 
 const BEY_ROSTER = [
   {
@@ -99,8 +96,7 @@ const BEY_ROSTER = [
   }
 ];
 
-// A rough strength score, only used to decide CPU-vs-CPU matches in a tournament
-// instantly. The player's own matches are always played out for real.
+// rough power score, only for the CPU vs CPU matches in the tournament
 function beyPowerScore(bey) {
   const s = bey.stats;
   return s.attack * 1.1 + s.defense * 0.9 + s.stamina * 0.8 + s.speed * 1.0;

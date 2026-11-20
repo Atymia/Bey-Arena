@@ -8,7 +8,7 @@
   <a href="#the-spinners">Spinners</a> ·
   <a href="#controls">Controls</a> ·
   <a href="#playing-on-a-phone">On a phone</a> ·
-  <a href="#running-it-locally">Run it locally</a>
+  <a href="#how-its-built">How it's built</a>
 </p>
 
 ---
@@ -53,7 +53,12 @@ Every top has two moves:
 
 All the effects (fire, wind, water, ice, darkness, lightning) are drawn live with shaders and particles, and every move has its own sound, synthesized in the browser rather than loaded from audio files.
 
-There are two modes: **Tournament**, where you work your way through a bracket to the final, and **Single Battle**, a best of 3 against an opponent you choose.
+There are three modes:
+- **Tournament**: beat everyone in the bracket and take the title.
+- **Quick Battle**: you against the CPU, best of 3.
+- **Versus**: you against a friend, each on your own phone. One creates a room, the other enters the 4-letter code and you're in. Works on Wi-Fi or mobile data.
+
+If the screen turns upright in the middle of a battle (it happens when you tilt hard), the battle pauses until you're back in landscape.
 
 ## Screenshots
 
@@ -81,7 +86,7 @@ There are two modes: **Tournament**, where you work your way through a bracket t
 | **Steer** | Drag the on-screen joystick with the mouse | Tilt the phone (or use the joystick) |
 | **Base move** | Base button | Base button |
 | **Special move** | Special button, once it's charged | Special button, once it's charged |
-| **Recalibrate tilt** | – | *Recalibrate tilt* on the result screen |
+| **Recalibrate tilt** | – | *Recalibrate* on the result screen |
 
 A few tips:
 - Go after the rival. The one charging in deals the damage.
@@ -109,24 +114,24 @@ Then open it from the new icon. A few things worth knowing:
 ## Feedback
 
 Bug reports and ideas are very welcome. You can open an issue in the [Issues](https://github.com/Atymia/Bey-Arena/issues) tab. It helps a lot if you mention:
-- the version number on the start screen (e.g. `v45`),
+- the version number on the start screen (e.g. `v46`),
 - your device and browser (e.g. *iPhone 15, Safari* or *Windows, Chrome*),
 - what happened, and which tops were fighting.
 
-## Running it locally
+## How it's built
 
-There's no build step and nothing to install. It's plain HTML and JavaScript, and Three.js comes from a CDN. Any static server will do:
+There's no build step and nothing to install. It's plain HTML and JavaScript, Three.js comes from a CDN, and the game is hosted on GitHub Pages straight from this repository.
+
+To try changes locally, any static server will do:
 
 ```bash
-git clone https://github.com/Atymia/Bey-Arena.git
-cd Bey-Arena
 python3 -m http.server 8000
 # then open http://localhost:8000
 ```
 
-Opening `index.html` straight from disk (`file://`) mostly works, but motion sensors and the home-screen install won't. Those need a server, and on a phone they need HTTPS.
+Opening `index.html` straight from disk (`file://`) mostly works, but motion sensors and the home-screen install won't. Those need a server, and on a phone they need HTTPS. After pushing an update, use Ctrl+F5, because browsers (phones especially) like to keep the old files around.
 
-To publish your own copy on GitHub Pages, go to **Settings → Pages**, choose **Deploy from a branch**, pick `main` and the root folder, and it goes live at `https://<username>.github.io/<repo>/`. After pushing an update, use Ctrl+F5, because browsers (phones especially) like to keep the old files around.
+Remember that the code is not open source: see [License](#license).
 
 ### What's in here
 
@@ -136,9 +141,11 @@ To publish your own copy on GitHub Pages, go to **Settings → Pages**, choose *
 ├── game.js         the game itself: physics, combat, moves, CPU opponent, controls, 3D scene
 ├── fx.js           what the moves look like: shaders, particles, glow
 ├── sfx.js          what the moves sound like, synthesized with the Web Audio API
+├── net.js          Versus mode: rooms and syncing the two phones
 ├── beys.js         the tops: stats, colors, move names and timings
 ├── hit.mp3         the clash sound
 ├── manifest.json   name, icon and orientation for the home-screen app
+├── LICENSE         terms of use (all rights reserved)
 └── images/         banner, screenshots and app icons
 ```
 
@@ -158,13 +165,18 @@ If you want to tinker:
 - [ ] Original names and artwork
 - [ ] Real 3D models for each top
 - [ ] More tops
+- [x] Versus mode (phone vs phone)
 - [ ] Offline play
 - [ ] Music
 
 ## Credits
 
-Made with [Three.js](https://threejs.org/) (r128). Fonts: [Inter](https://rsms.me/inter/), Bebas Neue and Roboto Mono from Google Fonts.
+Made with [Three.js](https://threejs.org/) (r128). Online play uses [PeerJS](https://peerjs.com/) (MIT License). Fonts: [Inter](https://rsms.me/inter/), Bebas Neue and Roboto Mono from Google Fonts.
 
 This is an independent, non-commercial fan project. It isn't affiliated with or endorsed by the owners of Beyblade or any related toy or series, and all trademarks belong to their respective owners.
 
-<!-- Add a LICENSE file and mention it here once you've decided how to license the project. -->
+## License
+
+© 2026 MrHide (Atymia). **All rights reserved.**
+
+This project is not open source. You're welcome to play the game and to read the code here on GitHub, but please don't copy, reuse, republish or sell the code, graphics or sounds without asking first. The full terms are in [LICENSE](LICENSE). If you'd like to use something from the project, just open an [issue](https://github.com/Atymia/Bey-Arena/issues) and ask.

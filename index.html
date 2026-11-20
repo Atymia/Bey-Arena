@@ -20,7 +20,7 @@
   <div id="rotate-overlay" class="rotate-overlay">
     <div class="rotate-card">
       <div class="rotate-icon">↻</div>
-      <p>Rotate your device to landscape to play.</p>
+      <p>Turn your phone sideways</p>
     </div>
   </div>
 
@@ -30,27 +30,31 @@
 
     <section id="screen-start" class="screen active">
       <h2 class="screen-title">LOBO</h2>
-      <p class="start-blurb">Spin, clash, and ring out your rival.</p>
-      <button id="btn-start" class="btn btn-primary">Start</button>
+      <p class="start-blurb">Spin. Clash. Ring them out.</p>
+      <button id="btn-start" class="btn btn-primary">Play</button>
       <p id="start-tilt-status" class="start-tilt-status"></p>
     </section>
 
     <section id="screen-mode" class="screen">
-      <h2 class="screen-title">Choose a Mode</h2>
+      <h2 class="screen-title">Select Mode</h2>
       <div class="mode-list">
         <button id="btn-mode-tournament" class="btn btn-primary mode-btn">
           <span class="mode-btn-title">Tournament</span>
-          <span class="mode-btn-sub">Fight through the bracket to the final</span>
+          <span class="mode-btn-sub">Beat everyone, take the title</span>
         </button>
         <button id="btn-mode-single" class="btn btn-secondary mode-btn">
-          <span class="mode-btn-title">Single Battle</span>
-          <span class="mode-btn-sub">Best of 3 against one opponent you pick</span>
+          <span class="mode-btn-title">Quick Battle</span>
+          <span class="mode-btn-sub">You vs the CPU</span>
+        </button>
+        <button id="btn-mode-online" class="btn btn-secondary mode-btn">
+          <span class="mode-btn-title">Versus</span>
+          <span class="mode-btn-sub">Play a friend online</span>
         </button>
       </div>
     </section>
 
     <section id="screen-select" class="screen">
-      <h2 class="screen-title" id="select-title">Choose your Bey</h2>
+      <h2 class="screen-title" id="select-title">Pick your Bey</h2>
       <div class="carousel">
         <button id="carousel-prev" class="carousel-arrow" aria-label="Previous">‹</button>
         <div id="carousel-card" class="carousel-card">
@@ -61,16 +65,41 @@
         <button id="carousel-next" class="carousel-arrow" aria-label="Next">›</button>
       </div>
       <div id="carousel-dots" class="carousel-dots"></div>
-      <button id="btn-confirm-select" class="btn btn-primary">Enter Tournament</button>
+      <p id="select-note" class="online-status error"></p>
+      <button id="btn-confirm-select" class="btn btn-primary">Start Tournament</button>
       <button id="btn-select-back" class="btn btn-secondary" style="margin-top:10px">Back</button>
     </section>
 
+    <section id="screen-online" class="screen">
+      <h2 class="screen-title" id="online-title">Versus</h2>
+      <div id="online-menu">
+        <button id="btn-online-create" class="btn btn-primary">Create Room</button>
+        <p class="online-or">or join with a code</p>
+        <div class="online-join">
+          <input id="online-code" class="online-code-input" maxlength="4" placeholder="CODE"
+                 autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+          <button id="btn-online-join" class="btn btn-secondary">Join</button>
+        </div>
+      </div>
+      <div id="online-room" class="online-room" hidden>
+        <div class="online-room-label">Room code</div>
+        <div id="online-room-code" class="online-room-code">----</div>
+        <div class="online-room-hint">Your friend enters it in Versus</div>
+      </div>
+      <div id="online-players" class="online-players" hidden>
+        <div class="online-player"><span class="online-player-who">You</span><span id="online-me" class="online-player-bey">Picking…</span></div>
+        <div class="online-player"><span class="online-player-who">Opponent</span><span id="online-them" class="online-player-bey">Picking…</span></div>
+      </div>
+      <p id="online-status" class="online-status"></p>
+      <button id="btn-online-back" class="btn btn-secondary" style="margin-top:10px">Back</button>
+    </section>
+
     <section id="screen-bracket" class="screen">
-      <h2 class="screen-title">Tournament Bracket</h2>
+      <h2 class="screen-title">Bracket</h2>
       <div id="path-list" class="path-list"></div>
       <div id="round-label" class="round-label"></div>
       <div id="bracket-list" class="bracket-list"></div>
-      <button id="btn-start-match" class="btn btn-primary">Battle</button>
+      <button id="btn-start-match" class="btn btn-primary">Fight</button>
     </section>
 
     <section id="screen-battle" class="screen">
@@ -83,6 +112,7 @@
         <div class="vs-col">
           <span class="vs-label">VS</span>
           <span id="set-score" class="set-score">0 - 0</span>
+          <span id="net-ping" class="net-ping"></span>
         </div>
         <div class="fighter-hud right">
           <span class="fighter-name" id="hud-name-b"></span>
@@ -93,7 +123,7 @@
 
       <div class="arena-wrap">
         <canvas id="arena" width="360" height="480"></canvas>
-        <div id="three-error" class="three-error">Could not load the 3D graphics.<br>Check your internet connection and reload the page.</div>
+        <div id="three-error" class="three-error">Couldn't load the 3D graphics.<br>Check your connection and reload.</div>
       </div>
 
       <div class="battle-controls">
@@ -117,14 +147,15 @@
       <h2 class="screen-title" id="result-title"></h2>
       <p id="result-text" class="result-text"></p>
       <button id="btn-continue" class="btn btn-primary">Continue</button>
-      <button id="btn-recalibrate" class="btn btn-secondary" style="margin-top:10px">Recalibrate tilt</button>
-      <button id="btn-back-select" class="btn btn-secondary" style="margin-top:10px">Back to Bey Selection</button>
+      <button id="btn-online-change" class="btn btn-secondary" style="margin-top:10px" hidden>Change Bey</button>
+      <button id="btn-recalibrate" class="btn btn-secondary" style="margin-top:10px">Recalibrate</button>
+      <button id="btn-back-select" class="btn btn-secondary" style="margin-top:10px">Menu</button>
     </section>
 
     <section id="screen-champion" class="screen">
-      <h2 class="screen-title">Tournament Champion</h2>
+      <h2 class="screen-title">Champion!</h2>
       <div id="champion-card" class="champion-card"></div>
-      <button id="btn-restart" class="btn btn-primary">New Tournament</button>
+      <button id="btn-restart" class="btn btn-primary">Play Again</button>
     </section>
 
   </main>
@@ -142,5 +173,6 @@
 <script src="fx.js"></script>
 <script src="sfx.js"></script>
 <script src="game.js"></script>
+<script src="net.js"></script>
 </body>
 </html>

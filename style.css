@@ -336,3 +336,33 @@ main { flex: 1; padding: 0 18px 28px; }
 .result-text { text-align: center; color: var(--text-dim); margin-bottom: 22px; font-size: 14px; }
 .champion-card { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 22px; }
 .champion-card .bey-card-name { font-size: 22px; font-family: var(--font-display); letter-spacing: 0.03em; }
+
+/* ---------- Online 1v1 ---------- */
+.rotate-sub { font-size: 13px; color: var(--text-dim); }
+.online-or { text-align: center; color: var(--text-dim); font-size: 13px; margin: 16px 0 8px; }
+.online-join { display: flex; gap: 10px; align-items: stretch; }
+.online-join .btn { width: auto; flex: 0 0 auto; padding-left: 26px; padding-right: 26px; }
+.online-code-input {
+  flex: 1; min-width: 0;
+  background: var(--bg-card); color: var(--text);
+  border: 1px solid var(--steel-dim); border-radius: 999px;
+  font-family: var(--font-mono); font-weight: 700; font-size: 20px;
+  letter-spacing: 0.35em; text-align: center; text-transform: uppercase;
+  padding: 10px 14px;
+}
+.online-code-input:focus { outline: none; border-color: var(--amber); }
+.online-room { text-align: center; background: var(--bg-card); border-radius: var(--radius); padding: 14px; margin: 6px 0 10px; }
+.online-room-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+.online-room-code { font-family: var(--font-mono); font-weight: 700; font-size: 40px; letter-spacing: 0.3em; color: var(--amber); margin: 4px 0; }
+.online-room-hint { font-size: 13px; color: var(--text-dim); }
+.online-players { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.online-player { background: var(--bg-card); border-radius: var(--radius); padding: 10px 12px; text-align: center; }
+.online-player-who { display: block; font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+.online-player-bey { display: block; font-weight: 700; margin-top: 2px; }
+.online-status { text-align: center; color: var(--text-dim); font-size: 14px; min-height: 1.4em; margin: 10px 0 0; }
+.online-status.error { color: var(--crimson); }
+.net-ping { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+
+/* the hidden attribute must win over display rules like .btn or grid */
+[hidden] { display: none !important; }
+#screen-online.active { max-width: 440px; margin: 0 auto; }

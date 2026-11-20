@@ -1,0 +1,37 @@
+Copyright (c) 2026 MrHide (Atymia). All rights reserved.
+
+Lobo, including its source code, graphics, sounds, banner, icons and text, is
+not open source. The fact that the code can be read on GitHub does not give
+anyone permission to use it.
+
+You MAY:
+  - play the game at https://atymia.github.io/Bey-Arena/ for free, for your
+    own personal use;
+  - view the source code on GitHub and fork the repository on GitHub, only
+    as far as the GitHub Terms of Service allow.
+
+You may NOT, without prior written permission from the copyright holder:
+  - copy, modify, or build on the code, graphics, sounds or other material;
+  - publish, host, redistribute or sublicense the game or any part of it;
+  - sell the game or any part of it, or use it in any commercial product,
+    including app stores and game stores.
+
+To ask for permission, open an issue at
+https://github.com/Atymia/Bey-Arena/issues.
+
+Third-party material
+--------------------
+The following are not covered by this notice and keep their own licenses:
+  - Three.js (MIT License), loaded from a CDN.
+  - PeerJS (MIT License), loaded from a CDN for online play.
+  - The Inter, Bebas Neue and Roboto Mono fonts (SIL Open Font License).
+
+Trademarks
+----------
+Beyblade and the names of the spinning tops used in this game (such as
+Dragoon, Dranzer, Driger, Draciel and Wolborg) belong to their respective
+owners. This is an independent, non-commercial fan project and is not
+affiliated with or endorsed by them. Nothing in this notice grants any right
+to those names.
+
+THE GAME IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
